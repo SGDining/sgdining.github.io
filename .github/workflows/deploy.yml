@@ -11,10 +11,6 @@ on:
       - 'accor-ui.js'
       - 'styles.css'
       - 'data/**'
-      - 'scripts/**'
-      - 'tests/**'
-      - 'requirements.txt'
-      - '.github/workflows/**'
       - 'BLUEPRINT.md'
       - 'README.md'
 
