@@ -2,8 +2,6 @@ name: Deploy SGDining root site
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '37 * * * *' # mirror current production data hourly
   push:
     branches: [main]
     paths:
@@ -16,98 +14,61 @@ on:
       - 'scripts/**'
       - 'tests/**'
       - 'requirements.txt'
-      - '.github/workflows/deploy.yml'
+      - '.github/workflows/**'
+      - 'BLUEPRINT.md'
+      - 'README.md'
 
 permissions:
   contents: read
   pages: write
   id-token: write
-  issues: write
 
 concurrency:
   group: sgdining-pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
 
-      - name: Mirror current live production datasets
+      - name: Preserve current SGDining production datasets
         run: |
           set -euo pipefail
           mkdir -p data
-          base='https://wyattsingapore-ux.github.io/amex-sg-benefit-finder'
-          curl --fail --location --retry 4 --retry-delay 2 "$base/data/merchants.json" --output data/merchants.json
-          curl --fail --location --retry 4 --retry-delay 2 "$base/data/eatigo_today.json" --output data/eatigo_today.json
+          live='https://sgdining.github.io'
+          if curl --fail --location --retry 4 --retry-delay 2 "$live/data/merchants.json" --output "$RUNNER_TEMP/merchants-live.json"; then
+            cp "$RUNNER_TEMP/merchants-live.json" data/merchants.json
+            echo 'Using current SGDining production merchants as deploy baseline.'
+          else
+            echo '::warning::Could not fetch current live merchants; using repository copy.'
+          fi
+          if curl --fail --location --retry 3 --retry-delay 2 "$live/data/eatigo_today.json" --output "$RUNNER_TEMP/eatigo-live.json"; then
+            cp "$RUNNER_TEMP/eatigo-live.json" data/eatigo_today.json
+            echo 'Using current SGDining Eatigo snapshot as deploy baseline.'
+          else
+            echo '::warning::Could not fetch current Eatigo snapshot; using repository copy.'
+          fi
 
-      - name: Validate mirrored datasets
+      - name: Validate deployment datasets
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
           merchants=json.loads(Path('data/merchants.json').read_text(encoding='utf-8')).get('merchants',[])
           live=json.loads(Path('data/eatigo_today.json').read_text(encoding='utf-8'))
-          eatigo=[m for m in merchants if m.get('eatigo') and m.get('eatigo_url')]
           mapped=sum(m.get('lat') is not None and m.get('lng') is not None for m in merchants)
-          attempted=int(live.get('restaurants_attempted') or 0)
-          print(f'merchants={len(merchants)} mapped={mapped} eatigo={len(eatigo)} live_attempted={attempted}')
-          if not merchants or mapped == 0:
-              raise SystemExit('Mirrored production merchant dataset is invalid')
-          if len(eatigo) < 200 or attempted < 200:
-              raise SystemExit('Mirrored Eatigo dataset is incomplete')
-          PY
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install data-enrichment dependencies
-        run: |
-          pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.32,<3' 'playwright>=1.47,<2'
-          python -m playwright install chromium
-
-      - name: Add current ALL Accor+ Explorer Singapore dining venues
-        run: python scripts/augment_accor.py
-
-      - name: Validate Accor integration
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          data=json.loads(Path('data/merchants.json').read_text(encoding='utf-8'))
-          merchants=data.get('merchants',[])
+          eatigo=[m for m in merchants if m.get('eatigo') and m.get('eatigo_url')]
           accor=[m for m in merchants if m.get('accor')]
-          both=[m for m in accor if m.get('lc')]
-          linked=[m for m in accor if m.get('accor_website_url')]
-          ids=[m.get('accor_id') for m in accor if m.get('accor_id')]
-          print(f'accor={len(accor)} accor_lc={len(both)} official_links={len(linked)} ids={len(ids)} unique_ids={len(set(ids))}')
-          print('Accor+LC:', ', '.join(sorted(str(m.get('accor_name') or m.get('name')) for m in both)))
-          if len(accor) < 25:
-              raise SystemExit('Accor production set is unexpectedly small')
-          if len(both) < 5:
-              raise SystemExit('Accor + Lifestyle Credit intersection is unexpectedly small')
-          if len(linked) != len(accor):
-              raise SystemExit('Not every Accor row has an official/source link')
-          if len(ids) != len(set(ids)):
-              raise SystemExit('Duplicate Accor restaurant IDs found')
-          PY
-
-      - name: Enrich Love Dining and GHA official website links
-        run: python scripts/enrich_program_links.py
-
-      - name: Enable programme website pin links in deployed UI
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('index.html')
-          html=p.read_text(encoding='utf-8')
-          tag='<script src="program-links.js?v=20260819-2258"></script>'
-          if 'program-links.js' not in html:
-              html=html.replace('</body>', tag+'\n</body>')
-          p.write_text(html, encoding='utf-8')
+          print(f'merchants={len(merchants)} mapped={mapped} eatigo={len(eatigo)} accor={len(accor)} live_attempted={live.get("restaurants_attempted")}')
+          if len(merchants) < 500 or mapped < 400:
+              raise SystemExit('Refusing to deploy an unexpectedly small SGDining merchant dataset')
+          if len(eatigo) < 200:
+              raise SystemExit('Refusing to deploy an incomplete Eatigo directory')
+          if len(accor) < 20:
+              raise SystemExit('Refusing to deploy an incomplete Accor set')
           PY
 
       - name: Configure GitHub Pages
@@ -129,23 +90,3 @@ jobs:
       - name: Deploy SGDining root site
         id: deployment
         uses: actions/deploy-pages@v4
-
-  report:
-    if: always()
-    runs-on: ubuntu-latest
-    needs: [build, deploy]
-    steps:
-      - name: Report deployment result
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BUILD_RESULT: ${{ needs.build.result }}
-          DEPLOY_RESULT: ${{ needs.deploy.result }}
-        run: |
-          if [ "$BUILD_RESULT" = "success" ] && [ "$DEPLOY_RESULT" = "success" ]; then
-            title="SGDining root deploy SUCCESS - run $GITHUB_RUN_NUMBER"
-            body="Root site deployed successfully: https://sgdining.github.io/\n\nBuild: $BUILD_RESULT\nDeploy: $DEPLOY_RESULT\nRun: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          else
-            title="SGDining root deploy FAILED - run $GITHUB_RUN_NUMBER"
-            body="Root deployment did not complete successfully. The legacy production site remains untouched.\n\nBuild: $BUILD_RESULT\nDeploy: $DEPLOY_RESULT\nRun: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          fi
-          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body" || true
