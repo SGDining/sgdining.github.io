@@ -1,7 +1,6 @@
 (() => {
   const baseModeMatch = modeMatch;
   const baseCurrent = current;
-  const baseBadges = badges;
   const baseBenefitText = benefitText;
   const baseListHintForMode = listHintForMode;
   const basePopulateCuisine = populateCuisine;
@@ -9,8 +8,14 @@
   const baseActiveFilterItems = activeFilterItems;
   const baseRender = render;
 
+  document.head.insertAdjacentHTML('beforeend', `<style>
+    .badge.accor{color:#b9f0ff;border-color:#2d8296;background:#103442}
+    .badge.accorlc{color:#d8f6c1;border-color:#558a38;background:#213718}
+    .accor-note{font-size:11px;line-height:1.45;color:#cceaf2;background:#102b35;border:1px solid #2f6170;border-radius:9px;padding:8px}
+    .accor-note strong{color:#effcff}.accor-note small{display:block;margin-top:5px;color:#9dc3cc}
+  </style>`);
+
   const modeIsAccor = (mode = $('benefitFilter').value) => mode === 'accor' || mode === 'accorlc';
-  const accorDisplayName = m => modeIsAccor() && m.accor_name ? m.accor_name : m.name;
 
   modeMatch = function (m, mode) {
     if (mode === 'accor') return !!m.accor;
@@ -108,7 +113,9 @@
     return `<div class="accor-note"><strong>ALL Accor+ Explorer:</strong> ${esc(benefit)}${variation}${meta.length ? `<small>${esc(meta.join(' · '))}</small>` : ''}<small>Blackout dates and terms can apply; confirm with Accor before dining.</small></div>`;
   }
 
-  function decorateAccorCards() {
+  function decorateAccor() {
+    if ($('accorSource')) $('accorSource').href = payload.sources?.accor_restaurants || 'https://restaurantsandbars.accor.com/en/singapore/singapore/map';
+    if ($('accorTermsSource')) $('accorTermsSource').href = payload.sources?.accor_dining_variations || 'https://www.accorplus.com/sg/dining-benefit-variations/';
     if (!modeIsAccor()) return;
     const rows = current();
     const cards = [...document.querySelectorAll('#merchantList .merchant')];
@@ -126,7 +133,7 @@
 
   render = function (...args) {
     const result = baseRender(...args);
-    decorateAccorCards();
+    decorateAccor();
     return result;
   };
 
