@@ -1,0 +1,28 @@
+name: Cancel obsolete SGDining cutover run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cancel-obsolete-cutover.yml'
+
+permissions:
+  actions: write
+  issues: write
+  contents: read
+
+jobs:
+  cancel-obsolete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel superseded cutover run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run cancel 32279606666 --repo "$GITHUB_REPOSITORY" || true
+          sleep 3
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Obsolete SGDining cutover run cancelled" \
+            --body "Superseded migration validation run 32279606666 was cancelled after successful authoritative cut-over run 32280907294."
