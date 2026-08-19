@@ -1,495 +1,284 @@
 # SGDining — Singapore Dining Benefit Finder
-## Project Blueprint v1.0
+## MASTER PROJECT BLUEPRINT v1.1
 
-**Status date:** 19 August 2026 (Singapore time)  
-**Primary production URL:** https://sgdining.github.io/  
+**Status date:** 19 August 2026 (Singapore)  
+**Production site:** `https://sgdining.github.io/`  
 **Primary repository:** `SGDining/sgdining.github.io`  
-**Legacy/upstream data repository:** `wyattsingapore-ux/amex-sg-benefit-finder`  
-**Project type:** Public, static, map-based Singapore dining-benefit discovery tool  
-**Operating model:** Automated data ingestion + conservative programme intersection + GitHub Pages deployment
+**Google Drive project folder:** `G:\My Drive\AI Projects and Commercialisation\SG Dining - LD-LifestyleCredit-Accor-GHA-Eatigo`
 
----
+## Document purpose
 
-# 1. Purpose and product vision
+This is the handover-grade technical, operational and deployment blueprint for the entire SGDining project. It is written so that a new developer, AI coding agent or future operator can take over the project without needing access to prior ChatGPT conversations.
 
-SGDining is an independent Singapore dining-benefit finder designed to answer a practical question:
+## Source-of-truth rule
 
-> “Which restaurants near me participate in the dining programmes/credits I have, and which restaurants let me stack or combine useful programme eligibility?”
+When this blueprint, README files, old conversations or old repository material disagree, inspect the current `main` branch of `SGDining/sgdining.github.io` and the latest successful GitHub Actions deployment first. Live code and validated production data are operationally authoritative. Update this blueprint after material architecture, source, credential, workflow or programme changes.
 
-The product consolidates several otherwise separate merchant/restaurant lists into a single searchable map and merchant list. It is intentionally conservative: an intersection such as `Love Dining + Lifestyle Credit` should only appear when the outlet/location can be matched with sufficient confidence. The system should prefer omitting an uncertain intersection over displaying a false positive.
+## 1. EXECUTIVE STATUS
 
-The public product is not intended to replace the source programme websites. It acts as a discovery layer and sends users back to official merchant/programme pages for confirmation and, where possible, booking.
+SGDining is a public static web application that consolidates Singapore dining-benefit programmes into one searchable map and merchant list.
 
-Core design principles:
+Current programme views:
 
-1. **Official sources first.** Programme membership and venue links should come from the programme owner or an official participating-hotel source whenever possible.
-2. **No invented benefits.** Do not infer eligibility, discount rates, booking rules or website URLs from search results when the programme source does not provide enough evidence.
-3. **Outlet-level matching.** Intersections should be location-specific, not merely brand-level.
-4. **Fail safely.** A source parser failure must not silently publish a severely truncated dataset.
-5. **Mobile first.** The map must be usable on a phone while the user is deciding where to eat.
-6. **Automate repetitive work.** Source refresh, Eatigo offer refresh, enrichment, validation and Pages deployment should run without manual workflow reruns.
-7. **Keep source attribution visible.** Users should be able to reach official programme and venue pages easily.
+- Love Dining (LD)
+- Lifestyle Credit (LC)
+- Both — LD + Lifestyle Credit
+- GHA List
+- Both GHA + Lifestyle Credit
+- Accor List
+- Both Accor + Lifestyle Credit
+- Eatigo List
+- Both Eatigo + Lifestyle Credit
 
----
+The public site is hosted from the SGDining GitHub organisation at `https://sgdining.github.io/`.
 
-# 2. Current production feature set
+The previous personal repository `wyattsingapore-ux/amex-sg-benefit-finder` is now **legacy only**. It is not part of the normal SGDining production data path. It may be retained temporarily for historical comparison or emergency archaeology, but production must not depend on it.
 
-The production benefit selector currently contains these modes:
+SGDining now owns:
 
-1. **Love Dining (LD)**
-2. **Lifestyle Credit (LC)**
-3. **Both — LD + Lifestyle Credit**
-4. **GHA List**
-5. **Both GHA + Lifestyle Credit**
-6. **Accor List**
-7. **Both Accor + Lifestyle Credit**
-8. **Eatigo List**
-9. **Both Eatigo + Lifestyle Credit**
+- the front-end application;
+- AMEX Love Dining/Lifestyle Credit parsers;
+- GHA/Pan Pacific augmentation;
+- Eatigo directory crawler;
+- Eatigo current-day discount refresh;
+- OneMap geocoding logic;
+- Accor discovery/augmentation;
+- official restaurant-link enrichment;
+- validation/tests;
+- all GitHub Pages deployment workflows.
 
-The UI also provides:
+## 2. PRODUCT PURPOSE
 
-- merchant / hotel / street / postal-code search;
-- dining/fashion category selection where relevant;
-- current-location support using browser geolocation;
-- arbitrary Singapore place lookup, e.g. `Bedok Mall`, `Orchard`, or a postal code;
-- distance filters of 1 km, 2 km, 5 km and 10 km;
-- sort by A–Z or nearest;
-- map-viewport-only filtering;
-- cuisine filtering when reliable source cuisine metadata exists;
-- Eatigo-specific minimum-discount and time-window filters;
-- mobile filter drawer / bottom-sheet behaviour;
-- clickable official programme/venue links on merchant cards;
-- clickable map pins for programme venue pages where a verified official URL exists;
-- clickable Eatigo percentage pins that open the corresponding Eatigo branch page.
+The product is designed to answer practical user questions such as:
 
----
+- Which restaurants near me participate in Love Dining?
+- Which merchants qualify for Lifestyle Credit?
+- Which outlet is in both Love Dining and Lifestyle Credit?
+- Which GHA/Pan Pacific restaurant is also an LC merchant?
+- Which Accor/ALL Accor+ restaurant is also an LC merchant?
+- Which Eatigo restaurants are also LC merchants?
+- Which Eatigo branch has a strong remaining discount today?
+- Which qualifying restaurants are within 1, 2, 5 or 10 km of my location or a Singapore place I enter?
 
-# 3. Current validated production baseline
+SGDining is a discovery layer. It is not the programme owner, payment processor or booking system. Users should be sent back to the official programme/restaurant page for final verification and booking where possible.
 
-The following is the latest validated reference state as of 19 August 2026. Counts can change when programme owners change their lists, so these are operational baselines rather than permanent constants.
+## 3. PRODUCT PRINCIPLES
 
-## 3.1 Main mirrored dataset
+### 3.1 Official sources first
+Programme membership, restaurant links, benefit descriptions and exclusions should come from official programme-owner or participating-hotel sources wherever practical.
 
-Recent validated production runs in the upstream repository contained approximately:
+### 3.2 No invented benefits
+Do not guess programme eligibility, discount percentages, exclusions, price, booking rules or official URLs.
 
-- **738 merchant/location rows before SGDining Accor augmentation**;
-- **711 mapped rows**;
-- **317 verified Singapore Eatigo branches**.
+### 3.3 Outlet-level intersections
+A brand appearing in two programmes does not automatically mean a specific outlet belongs to both. Intersections must be location-aware.
 
-## 3.2 Love Dining
+### 3.4 Conservative matching
+A false positive is more damaging than a small number of false negatives. Ambiguous matches should be omitted or flagged rather than guessed.
 
-- Love Dining combines the AMEX Love Dining hotel and restaurant pages.
-- Current SGDining link enrichment verified **87/87 Love Dining rows with official AMEX-published “Visit Website” links**.
-- The website link comes from AMEX. SGDining does not guess a venue URL.
+### 3.5 Fail safely
+A parser or source failure must not publish an empty or drastically truncated dataset. The current SGDining production dataset is used as the last-good fallback.
 
-## 3.3 GHA / Pan Pacific DISCOVERY
+### 3.6 Mobile first
+The map and filters must remain usable while a user is physically deciding where to eat.
 
-- Current verified Singapore GHA/Pan Pacific participating set: **17 outlets**.
-- Official venue/source links: **17/17**.
-- Published tier display currently used by SGDining:
-  - Silver: 10%
-  - Gold: 15%
-  - Platinum: 20%
-  - Titanium: 25%
+### 3.7 Automation first
+Routine data refresh and deployment should run automatically. Manual workflow dispatch is retained only for diagnostics/recovery.
 
-Always retain the disclaimer that programme terms and exclusions can change.
+### 3.8 Privacy by default
+The site does not require login and should not store precise user location server-side.
 
-## 3.4 Eatigo
+## 4. PROJECT LOCATIONS AND OWNERSHIP
 
-- Current verified Singapore Eatigo directory baseline: **317 branches**.
-- A separate `eatigo_today.json` snapshot stores same-day remaining offer times, percentages and cuisines.
-- Production percentage pins display the best remaining matching discount for the selected time filter.
-- The snapshot is refreshed regularly by automation; users must still confirm/book on Eatigo.
+### 4.1 Primary GitHub organisation
+Organisation: `SGDining`
 
-## 3.5 ALL Accor+ Explorer
+### 4.2 Production repository
+Repository: `SGDining/sgdining.github.io`  
+Default branch: `main`  
+Visibility: public  
+GitHub Pages URL: `https://sgdining.github.io/`
 
-Latest successful production validation:
+### 4.3 Google Drive project folder
+Windows-synchronised path:
 
-- Official Accor Singapore directory rows discovered: **31**.
-- Current directory rows excluded by published Accor+ Singapore rules in that run: **JAAN By Kirk Westaway (1)**.
-- Eligible directory rows after that exclusion: **30**.
-- Additional explicit variation venue promoted from existing merchant data: **Wooloomooloo Steakhouse (1)**.
-- Final **Accor List: 31 venues**.
-- **Both Accor + Lifestyle Credit: 11 venues**.
-- Official/source links: **31/31**.
-- Accor restaurant IDs: **30/30 unique** where an Accor restaurant ID is available.
+`G:\My Drive\AI Projects and Commercialisation\SG Dining - LD-LifestyleCredit-Accor-GHA-Eatigo`
 
-Validated Accor + Lifestyle Credit intersection names in that run:
+Drive folder ID: `1h_ffFIIShqf6fgdx1YCPmc-YcXsieEL3`
 
-- ANTI:DOTE
-- ASIAN MARKET CAFE
-- CLOVE
-- MADISON'S
-- MOGA
-- PREGO
-- RACINES
-- SKAI
-- THE EIGHT
-- The Stamford Brasserie
-- Wooloomooloo Steakhouse
-
-The Accor directory also exposes cuisine/style and average-price metadata. This creates a trustworthy path for a future price-range filter; price should not be fabricated for other programmes that do not provide comparable data.
-
----
-
-# 4. Official data sources
-
-## 4.1 American Express Love Dining — Hotels
-
-Official source:
-
-`https://www.americanexpress.com/sg/benefits/love-dining/love-dining-hotels.html`
-
-Used for:
-
-- participating hotel restaurants;
-- venue/address information;
-- official `Visit Website` links.
-
-## 4.2 American Express Love Dining — Restaurants
-
-Official source:
-
-`https://www.americanexpress.com/sg/benefits/love-dining/love-restaurants.html`
-
-Used for:
-
-- participating standalone restaurant outlets;
-- outlet/address information;
-- official `Visit Website` links.
-
-The two Love Dining sources are merged into a single `ld` programme flag in the normalized merchant dataset.
-
-## 4.3 American Express Lifestyle Credit
-
-Official source PDF:
-
-`https://www.americanexpress.com/content/dam/amex/en-sg/benefits/platinum-credit-card-fashion-dining-credit-participating-merchants.pdf`
-
-The parser keeps outlet/location records rather than collapsing every brand into one row. This is necessary for correct intersections.
-
-A historically validated extraction baseline contained 363 outlet/location entries, split between fashion and dining. Treat that as a regression reference, not a permanent source count.
-
-## 4.4 Pan Pacific DISCOVERY / GHA
-
-Participating restaurant source:
-
-`https://www.panpacific.com/en/dining/pphg-fb.html`
-
-Benefit details:
-
-`https://www.panpacific.com/en/panpacific-discovery/benefits.html`
-
-SGDining calls this view `GHA List` for user convenience, while the participating restaurant source is Pan Pacific Hotels Group and the membership programme is Pan Pacific DISCOVERY / GHA DISCOVERY.
-
-## 4.5 Eatigo
-
-Singapore directory source:
-
-`https://eatigo.com/en/regions/27/search`
-
-The directory crawler discovers branch IDs, restaurant names, Singapore location data and direct branch URLs.
-
-Today-offer collection opens/fetches the individual branch information necessary to populate `eatigo_today.json` with current remaining slots, discounts and cuisine metadata.
-
-## 4.6 Accor Restaurants & Bars
-
-Official Singapore map/directory:
-
-`https://restaurantsandbars.accor.com/en/singapore/singapore/map`
-
-The visible web page is JavaScript-driven. The implementation captures Accor's own `SearchRestaurants` structured response. The current feed supplies fields including:
-
-- Accor restaurant ID;
-- restaurant name;
-- latitude / longitude;
-- postal code;
-- food/cuisine type;
-- average price;
-- currency.
-
-A stable venue route is constructed from the official restaurant ID:
-
-`https://restaurantsandbars.accor.com/en/restaurant/<ACCOR_ID>`
-
-## 4.7 ALL Accor+ Explorer variations/exclusions
-
-Official Singapore variations page:
-
-`https://www.accorplus.com/sg/dining-benefit-variations/`
-
-The standard display currently used for ordinary eligible venues is:
-
-- **30% off food**;
-- **15% off beverages**.
-
-Some named Singapore venues have different treatment. The Accor augmentation script maintains conservative exclusion and 15%-variation name sets based on the official page. When Accor changes the page, the lists must be revalidated rather than assumed to remain permanent.
-
----
-
-# 5. Repository and hosting architecture
-
-## 5.1 Primary public repository
-
-`SGDining/sgdining.github.io`
-
-This repository owns the clean GitHub Pages organization-root URL:
-
-`https://sgdining.github.io/`
-
-This is the URL intended for public sharing and branding.
-
-## 5.2 Legacy/upstream repository
-
+### 4.4 Legacy repository
 `wyattsingapore-ux/amex-sg-benefit-finder`
 
-This remains an important temporary upstream data-generation system. It currently performs the complete AMEX/GHA/Eatigo refresh and OneMap geocoding, then serves:
+Status: legacy/archive only. No production workflow in SGDining should fetch data, code or artifacts from this repository.
 
-- `data/merchants.json`
-- `data/eatigo_today.json`
+## 5. CURRENT PRODUCTION ARCHITECTURE
 
-The SGDining root repository mirrors these deployed datasets and then performs its own SGDining-specific enrichment and deployment.
-
-## 5.3 Why two repositories currently exist
-
-The project was migrated to the `SGDining` GitHub organization to remove the personal `wyattsingapore-ux` branding from the public URL. The old production site was deliberately kept intact during migration as a safe fallback.
-
-The current architecture is therefore transitional:
+### 5.1 High-level flow
 
 ```text
-Official AMEX / GHA / Eatigo sources
-            |
-            v
-wyattsingapore-ux/amex-sg-benefit-finder
-- refresh AMEX
-- refresh GHA
-- refresh Eatigo directory
-- OneMap geocode
-- refresh Eatigo today offers
-            |
-            | deployed JSON mirror
-            v
-https://wyattsingapore-ux.github.io/amex-sg-benefit-finder/
-            |
-            | hourly SGDining mirror
-            v
-SGDining/sgdining.github.io
-- validate mirror
-- augment Accor
-- enrich LD/GHA links
-- apply SGDining UI extensions
-- deploy organization-root Pages
-            |
-            v
+Official sources
+  |
+  +--> AMEX Love Dining hotel page
+  +--> AMEX Love Dining restaurant page
+  +--> AMEX Lifestyle Credit PDF
+  +--> Pan Pacific / GHA participating restaurant pages
+  +--> Eatigo Singapore directory and branch pages
+  +--> Accor Restaurants & Bars Singapore directory
+  +--> Accor+ Singapore variations page
+  |
+  v
+SGDining/sgdining.github.io GitHub Actions
+  |
+  +--> parse / normalize
+  +--> outlet-level matching
+  +--> geocode/cache
+  +--> dynamic Eatigo offer refresh
+  +--> official-link enrichment
+  +--> validation + tests
+  |
+  v
+data/merchants.json
+data/eatigo_today.json
+  |
+  v
+GitHub Pages artifact
+  |
+  v
 https://sgdining.github.io/
 ```
 
-## 5.4 Target end-state
+There is **no production hop through `wyattsingapore-ux`**.
 
-The preferred end-state is a single primary repository under `SGDining` that performs all source refreshes itself. When that migration is complete:
+### 5.2 Application style
+The public site is a static browser application using HTML, CSS, JavaScript, Leaflet, OpenStreetMap tiles and JSON generated during GitHub Actions. There is no persistent application server and no user database.
 
-1. add OneMap secrets to the SGDining repository;
-2. adapt the legacy full-refresh workflows for a root Pages repository;
-3. move Eatigo directory/hourly refresh into SGDining;
-4. validate several successful cycles;
-5. remove the hourly dependency on the legacy Pages site;
-6. retain/archive the old repository for history rather than production dependency.
+## 6. OFFICIAL DATA SOURCES
 
-Do not retire the legacy data pipeline until SGDining can independently regenerate and geocode the full dataset.
+### 6.1 American Express Love Dining — Hotels
+Official source:
+`https://www.americanexpress.com/sg/benefits/love-dining/love-dining-hotels.html`
 
----
+Used for participating hotel restaurants, name/address context and AMEX-published `Visit Website` links.
 
-# 6. Main production files
+### 6.2 American Express Love Dining — Restaurants
+Official source:
+`https://www.americanexpress.com/sg/benefits/love-dining/love-restaurants.html`
 
-## 6.1 `index.html`
+Used for participating standalone restaurants/outlets, address context and AMEX-published `Visit Website` links.
 
-Responsibilities:
+The hotel and restaurant lists are combined into the LD programme flag.
 
-- page layout;
-- benefit selector;
-- search controls;
-- filter panel;
-- map and merchant-list containers;
-- programme source links in the footer;
-- loading `app.js`, `program-links.js` and `accor-ui.js`.
+### 6.3 American Express Lifestyle Credit
+Official source PDF:
+`https://www.americanexpress.com/content/dam/amex/en-sg/benefits/platinum-credit-card-fashion-dining-credit-participating-merchants.pdf`
 
-Current visible programme labels include `Accor List` and `Both Accor + Lifestyle Credit`.
+Important implementation rule: retain outlet/location rows. Do not collapse a multi-outlet brand into one global merchant record.
 
-## 6.2 `styles.css`
+### 6.4 GHA / Pan Pacific DISCOVERY
+Participating restaurant source:
+`https://www.panpacific.com/en/dining/pphg-fb.html`
 
-Responsibilities:
+Benefit source:
+`https://www.panpacific.com/en/panpacific-discovery/benefits.html`
 
-- dark responsive visual theme;
-- desktop/mobile grid layout;
-- map sizing;
-- merchant cards;
-- programme badges;
-- Eatigo percentage pins/tooltips;
-- origin/current-location pin;
-- mobile filter sheet.
+The UI label is `GHA List` for convenience. The underlying participating set is the Pan Pacific Hotels Group dining list under Pan Pacific DISCOVERY/GHA DISCOVERY.
 
-## 6.3 `app.js`
+Current published tier display used by SGDining:
 
-Core front-end controller.
+- Silver: 10%
+- Gold: 15%
+- Platinum: 20%
+- Titanium: 25%
 
-Responsibilities include:
+These values are not permanent constants; revalidate when source terms change.
 
-- Leaflet map initialization;
-- loading `data/merchants.json` and `data/eatigo_today.json`;
-- programme matching for LD, LC, GHA and Eatigo;
-- text/postal search;
-- Nominatim place lookup;
+### 6.5 Eatigo
+Singapore discovery source:
+`https://eatigo.com/en/regions/27/search`
+
+The crawler discovers Singapore branch records and direct branch URLs. Current-day collection then fetches remaining time/discount information used by the dynamic Eatigo UI.
+
+### 6.6 Accor Restaurants & Bars
+Official Singapore directory:
+`https://restaurantsandbars.accor.com/en/singapore/singapore/map`
+
+The visible site is JavaScript-driven. The Accor integration first attempts the official structured restaurant response. If needed, Playwright loads the official map and captures Accor’s own `SearchRestaurants` network response.
+
+Representative fields include Accor restaurant ID, restaurant name, latitude/longitude, postal code, cuisine/food type, average price and currency.
+
+Stable venue route:
+`https://restaurantsandbars.accor.com/en/restaurant/<ACCOR_ID>`
+
+### 6.7 ALL Accor+ Explorer variations
+Official Singapore variations source:
+`https://www.accorplus.com/sg/dining-benefit-variations/`
+
+SGDining uses the ordinary published benefit metadata where applicable and maintains conservative named exclusions/variations based on the source. Do not assume the restaurant directory and benefit eligibility are identical.
+
+## 7. REPOSITORY STRUCTURE
+
+Key top-level files:
+
+- `index.html` — page structure and controls
+- `styles.css` — responsive visual design
+- `app.js` — primary map/search/filter controller
+- `program-links.js` — official venue link behaviour
+- `accor-ui.js` — Accor-specific UI extension
+- `requirements.txt` — Python refresh dependencies
+- `BLUEPRINT.md` — repository technical blueprint
+- `README.md` — shorter project introduction
+- `data/` — generated/deployed JSON
+- `scripts/` — source ingestion, augmentation, geocoding and validation
+- `tests/` — regression tests
+- `experiments/` — diagnostics/source investigations
+- `.github/workflows/` — CI/CD and refresh automation
+
+## 8. FRONT-END ARCHITECTURE
+
+### 8.1 index.html
+Responsibilities include hero/header, benefit/category selectors, merchant/street/postal search, current-location button, filter drawer, cuisine filter, nearby-place input, distance filter, Eatigo discount/time filters, result statistics, map, merchant list, sort control, disclaimer/source footer and script load order.
+
+### 8.2 styles.css
+Responsibilities include dark visual theme, desktop/mobile layout, cards, map sizing, marker/tooltip treatment, mobile filter drawer, Eatigo percentage markers and merchant-list badges.
+
+### 8.3 app.js
+Core responsibilities:
+
+- initialise Leaflet map;
+- load `data/merchants.json`;
+- load `data/eatigo_today.json`;
+- match LD/LC/GHA/Eatigo modes;
+- text/postal/street/hotel search;
 - browser geolocation;
-- distance calculation;
-- current-map-viewport filtering;
+- arbitrary Singapore place lookup;
+- great-circle distance calculation;
+- radius and viewport filtering;
+- sorting;
+- common cuisine filtering where metadata is trustworthy;
 - Eatigo discount/time filtering;
-- cuisine filter population for Eatigo;
-- result sorting;
 - merchant-card rendering;
-- Eatigo percentage map markers;
-- Eatigo hover/touch details;
-- direct Eatigo branch navigation.
+- Eatigo percentage markers;
+- desktop hover/mobile popup behaviour.
 
-## 6.4 `program-links.js`
+### 8.4 program-links.js
+Programme URL routing:
 
-A UI extension that attaches official venue links to map pins and merchant cards.
+- LD / LD+LC -> `ld_website_url`
+- GHA / GHA+LC -> `gha_website_url`
+- Accor / Accor+LC -> `accor_website_url` or `accor_url`
 
-Programme URL selection:
+If a verified URL exists, the map pin becomes clickable, opens the official page in a new tab and the merchant card receives a `Website` link. If no verified URL exists, retain the normal popup and do not invent a URL.
 
-- LD / LD+LC → `ld_website_url`
-- GHA / GHA+LC → `gha_website_url`
-- Accor / Accor+LC → `accor_website_url`
+### 8.5 accor-ui.js
+Current responsibilities include Accor/Accor+LC matching, badges, benefit notes, variation notices, Accor cuisine values, average-price display and Accor list hints.
 
-For a verified URL, the ordinary Leaflet popup is replaced by a click action that opens the official venue website. If no URL is present, the normal popup remains. This is deliberate: never substitute a guessed URL.
+Technical debt: this is layered on top of `app.js`. Long-term, move programme behaviours into a formal adapter architecture.
 
-## 6.5 `accor-ui.js`
+## 9. NORMALIZED MERCHANT DATA MODEL
 
-Accor-specific front-end extension layered on top of the base `app.js`.
+Primary generated source: `data/merchants.json`
 
-Responsibilities:
-
-- add `accor` and `accorlc` mode matching;
-- render Accor/Accor+LC badges;
-- show Accor benefit notes;
-- display 15%-variation notices;
-- expose Accor cuisine metadata in the common cuisine filter;
-- display average-price metadata when provided by Accor;
-- add Accor-specific list hints;
-- keep existing generic search and distance filters working for Accor.
-
-Long-term refactor: merge this extension cleanly into the main app after the Accor feature is stable, rather than accumulating many monkey-patch extension files.
-
----
-
-# 7. Data-processing scripts
-
-## 7.1 `scripts/refresh_data.py`
-
-Base AMEX extraction logic for Love Dining and Lifestyle Credit.
-
-## 7.2 `scripts/refresh_data_fixed.py`
-
-Production AMEX refresh wrapper/fix layer. This is the preferred production entry point because it contains corrections for grouped/outlet-specific LC parsing, including cases that previously caused known intersections such as Prego to be missed.
-
-## 7.3 `scripts/augment_gha.py`
-
-Adds GHA/Pan Pacific DISCOVERY restaurants to the normalized merchant dataset and finds conservative GHA+LC matches.
-
-## 7.4 `scripts/augment_eatigo_resilient.py`
-
-Main resilient Eatigo discovery implementation.
-
-## 7.5 `scripts/augment_eatigo_resilient_v2.py`
-
-Current production wrapper/variant for full Eatigo directory discovery. It was developed after earlier search-page instability and was validated against the full Singapore directory.
-
-## 7.6 `scripts/refresh_eatigo_today.py`
-
-Refreshes current-day Eatigo offer snapshots for all discovered Eatigo branches.
-
-Expected output:
-
-`data/eatigo_today.json`
-
-Important output/monitoring fields include:
-
-- `date_sg`
-- `restaurants_attempted`
-- `restaurants_with_future_slots`
-- `restaurants_mapped_with_future_slots`
-- `restaurants_with_cuisine`
-- `restaurants_with_50pct_or_better`
-- `request_errors`
-- `refresh_seconds`
-- `restaurants_per_second`
-- `workers`
-
-## 7.7 `scripts/geocode.py`
-
-Uses Singapore OneMap for merchant geocoding and metadata enrichment.
-
-Expected cached/normalized fields can include:
-
-- latitude / longitude;
-- `geocode_address`;
-- `geocode_postal`;
-- `geocode_building`;
-- `geocode_road`.
-
-## 7.8 `scripts/enrich_program_links.py`
-
-Conservative official-link enrichment.
-
-Love Dining:
-
-- parses anchors explicitly labelled `Visit Website` on the official AMEX Love Dining pages;
-- matches by postal/name where possible;
-- permits exact grouped brand matching for cases such as Spizza where the AMEX block structure does not expose the outlet postal alongside every link;
-- no search-engine guessing.
-
-GHA:
-
-- parses venue links from the official Singapore section of the Pan Pacific source;
-- matches hotel + restaurant names conservatively.
-
-The production safeguard rejects unexpectedly low link coverage.
-
-## 7.9 `scripts/augment_accor.py`
-
-Adds the ALL Accor+ Explorer programme.
-
-Source transport strategy:
-
-1. try Accor's official structured GraphQL `SearchRestaurants` response directly;
-2. if protected/non-JSON, launch Playwright Chromium;
-3. load the official Accor Singapore map page;
-4. capture Accor's own `SearchRestaurants` network response;
-5. reject an unexpectedly small/large Singapore directory count.
-
-Accor+ processing:
-
-- clear previous Accor fields before rebuilding;
-- exclude names explicitly excluded by current Singapore variations rules;
-- apply ordinary `30% food / 15% beverages` metadata;
-- apply named 15%-variation metadata where applicable;
-- construct the official Accor restaurant URL from the stable restaurant ID;
-- use Accor coordinates and postal code;
-- match against LC dining rows using postal + normalized name/address similarity;
-- require a similarity threshold rather than broad brand guessing;
-- append eligible Accor-only rows when no LC match exists;
-- check for duplicate Accor IDs.
-
-## 7.10 `scripts/validate_data.py`
-
-General dataset integrity checks. Any future programme should add comparable count/duplicate/invariant checks rather than relying only on visual inspection.
-
----
-
-# 8. Normalized merchant data model
-
-The normalized source of truth used by the UI is `data/merchants.json`.
-
-Representative common fields:
+Common fields may include:
 
 ```text
 id
@@ -507,7 +296,7 @@ eatigo
 accor
 ```
 
-Representative source/match metadata:
+Source/matching metadata may include:
 
 ```text
 ld_source
@@ -523,7 +312,7 @@ eatigo_location
 eatigo_match_note
 ```
 
-Official website enrichment:
+Official-link fields:
 
 ```text
 ld_website_url
@@ -531,7 +320,7 @@ gha_website_url
 accor_website_url
 ```
 
-Accor-specific metadata:
+Accor fields:
 
 ```text
 accor_id
@@ -548,7 +337,7 @@ accor_match_note
 accor_url
 ```
 
-Geocoding/search metadata may include:
+Geocoding/search fields may include:
 
 ```text
 geocode_address
@@ -557,583 +346,483 @@ geocode_building
 geocode_road
 ```
 
-The schema is intentionally additive so one physical outlet can carry multiple programme flags.
+The schema is intentionally additive. One physical outlet can carry multiple programme flags.
 
----
+## 10. PROGRAMME INTERSECTION RULES
 
-# 9. Programme intersection rules
+### 10.1 LD + Lifestyle Credit
+Must be outlet/location-level. Preferred evidence order:
 
-## 9.1 Love Dining + Lifestyle Credit
+1. same postal/location;
+2. compatible normalized restaurant/brand name;
+3. grouped-PDF handling where the AMEX LC document visually spans brand/location cells.
 
-This must be an **outlet/location intersection**, not simply the same brand appearing somewhere in both lists.
+Regression example: Prego should appear in LD+LC when current source data still supports it.
 
-Preferred evidence:
+### 10.2 GHA + Lifestyle Credit
+Match restaurant + property/location context against LC dining rows. Hotel context matters because restaurant names can be non-unique.
 
-1. same postal code/location;
-2. compatible restaurant/brand name;
-3. grouped-table handling where official PDF formatting spans multiple rows/cells.
+### 10.3 Eatigo + Lifestyle Credit
+Use verified Eatigo branch identity and location/property evidence where available. If a name maps to multiple LC outlets and branch evidence is insufficient, omit rather than guess.
 
-Known regression example: **Prego** should appear in the LD+LC intersection.
+### 10.4 Accor + Lifestyle Credit
+Current algorithm uses LC dining category, matching postal when available, normalized restaurant/brand/address similarity, a conservative similarity threshold and `accor_match_note` for accepted matches.
 
-## 9.2 GHA + Lifestyle Credit
+Do not loosen the threshold simply to increase intersection count.
 
-Match the GHA restaurant at its specific hotel/property against LC dining rows at the same location. Hotel/property context is important because restaurant names alone may not be globally unique.
+## 11. MAP, SEARCH AND LOCATION
 
-## 9.3 Eatigo + Lifestyle Credit
+### 11.1 Base map
+Leaflet with OpenStreetMap tiles. Default Singapore centre is approximately `1.3521, 103.8198`.
 
-Prefer verified branch identity and branch/property/location evidence.
+### 11.2 Current location
+`Use my location` invokes browser geolocation permission. Coordinates are used client-side for distance filtering. The static app does not intentionally store user location history.
 
-Where multiple LC outlets share a similar restaurant name, do not claim a match unless the Eatigo branch/location can resolve it sufficiently.
+### 11.3 Arbitrary nearby location
+Users can enter a mall, district, street, postal code or another Singapore place. The browser uses a public geocoding/search endpoint with Singapore scoping and sets the returned point as the distance origin.
 
-The full Eatigo discovery implementation verifies Singapore addresses/branches rather than assuming every region search result is a Singapore outlet.
+### 11.4 Radius options
+Any distance, 1 km, 2 km, 5 km and 10 km.
 
-## 9.4 Accor + Lifestyle Credit
+### 11.5 Search index
+Search uses merchant/restaurant name plus available address, hotel/building, road and postal metadata.
 
-Current implementation requires:
+## 12. EATIGO DYNAMIC DATA
 
-- LC category = dining;
-- matching postal code when Accor supplies a postal;
-- normalized name/brand/address similarity;
-- minimum accepted similarity score of approximately `0.78`.
+Primary snapshot: `data/eatigo_today.json`
 
-The matching script records an `accor_match_note` for accepted matches.
+Representative monitoring fields:
 
-Do not loosen the threshold casually. False intersection results reduce trust more than a small number of missed matches.
+```text
+date_sg
+restaurants_attempted
+restaurants_with_future_slots
+restaurants_mapped_with_future_slots
+restaurants_with_cuisine
+restaurants_with_50pct_or_better
+request_errors
+refresh_seconds
+restaurants_per_second
+workers
+```
 
----
+UI behaviour:
 
-# 10. Map and location behaviour
+- marker shows best remaining qualifying discount;
+- minimum-discount filter;
+- time-window filter;
+- desktop hover details;
+- mobile popup/touch behaviour;
+- click opens Eatigo branch page.
 
-## 10.1 Base map
+Users must still confirm actual booking availability on Eatigo.
 
-Leaflet + OpenStreetMap tiles.
+## 13. DATA-PROCESSING SCRIPTS
 
-Default center:
+### 13.1 scripts/refresh_data.py
+Base AMEX LD/LC extraction.
 
-Singapore (`1.3521, 103.8198`).
+### 13.2 scripts/refresh_data_fixed.py
+Preferred production AMEX entry point. Includes grouped/outlet-specific LC parsing corrections.
 
-## 10.2 Current location
+### 13.3 scripts/augment_gha.py
+Adds Pan Pacific/GHA restaurants and conservative GHA+LC intersections.
 
-The `Use my location` button uses browser geolocation. The user's coordinates remain client-side in the map session; the static site does not maintain a user account or server-side location database.
+### 13.4 scripts/augment_eatigo_resilient.py
+Resilient Eatigo Singapore discovery implementation.
 
-The origin marker is visually distinct from restaurant markers.
+### 13.5 scripts/augment_eatigo_resilient_v2.py
+Current production wrapper/variant for robust full-directory discovery.
 
-## 10.3 Arbitrary nearby location
+### 13.6 scripts/refresh_eatigo_today.py
+Refreshes current-day Eatigo offers/cuisine snapshot.
 
-Users may enter a location such as:
+### 13.7 scripts/geocode.py
+OneMap build-time geocoding and cache enrichment.
 
-- Bedok Mall
-- Orchard
-- Marina Bay
-- postal code
+Authentication order:
 
-The front end queries OpenStreetMap Nominatim with Singapore scoping and sets the returned point as the distance origin.
+1. `ONEMAP_TOKEN` if supplied;
+2. `ONEMAP_API_EMAIL` / `ONEMAP_API_PASSWORD`;
+3. `ONEMAP_EMAIL` / `ONEMAP_PASSWORD` aliases;
+4. cache-only mode if no credential is available.
 
-This is preferable to trying to store every Singapore mall name manually.
+### 13.8 scripts/enrich_program_links.py
+Adds conservative official links. Love Dining uses official AMEX `Visit Website` links; GHA uses official Pan Pacific venue links. No search-engine guessing.
 
-## 10.4 Distance filtering
+### 13.9 scripts/augment_accor.py
+Accor production augmentation.
 
-Available radius options:
+Transport strategy:
 
-- any distance;
-- 1 km;
-- 2 km;
-- 5 km;
-- 10 km.
+1. attempt official structured response;
+2. fallback to Playwright;
+3. load official Singapore Accor map;
+4. capture `SearchRestaurants` response;
+5. validate plausible Singapore result count.
 
-Distances are calculated client-side using great-circle distance.
+Processing rebuilds Accor fields, applies exclusions/variations, builds stable venue URLs, uses Accor coordinates/postal, matches LC conservatively, appends eligible Accor-only rows and verifies unique IDs.
 
-## 10.5 Search
+### 13.10 scripts/validate_data.py
+General data invariants.
 
-Search indexes merchant names plus available address/location metadata including hotel, building, road and postal information. Common Singapore address abbreviations are normalized where practical.
+## 14. DEPLOYMENT AND CI/CD
 
----
+All production workflows live in `.github/workflows/` under `SGDining/sgdining.github.io`.
 
-# 11. Programme-specific UI behaviour
-
-## 11.1 Love Dining
-
-- ordinary programme pins;
-- pin/card official link uses AMEX-published `Visit Website` URL;
-- LD+LC keeps the same official LD venue link.
-
-## 11.2 GHA
-
-- programme badge;
-- displayed DISCOVERY tier savings;
-- click-through to official Pan Pacific venue page;
-- GHA+LC retains the same venue link.
-
-## 11.3 Accor
-
-- Accor / Accor+LC badges;
-- programme note showing ordinary or variation discount treatment;
-- cuisine metadata where available;
-- Accor average-price metadata shown when supplied by Accor;
-- official Accor restaurant link;
-- `Both Accor + Lifestyle Credit` uses the same official venue link.
-
-## 11.4 Eatigo
-
-Eatigo is intentionally more dynamic than the other programme views.
-
-For a branch with current matching slots:
-
-- marker shows best remaining percentage;
-- percentage colour bucket reflects discount range;
-- desktop hover displays restaurant, address, cuisine, distance and slot table;
-- mobile uses a popup rather than relying on hover;
-- click opens the Eatigo branch page.
-
-Eatigo-only controls:
-
-- minimum discount: Any / 20%+ / 30%+ / 40%+ / 50%;
-- time windows: any remaining, next 2 hours, lunch, dinner, late.
-
-These controls must remain hidden for unrelated programmes so users do not assume Love Dining/GHA/Accor data has Eatigo-style time availability.
-
----
-
-# 12. Automation and deployment
-
-# 12.1 Legacy full refresh — upstream repository
-
-Workflow:
-
-`.github/workflows/refresh-and-deploy.yml`
-
-Schedule:
-
-`17 2 * * *` UTC = approximately **10:17 AM Singapore time daily**.
-
-Key stages:
-
-1. save current deployed merchant/Eatigo JSON as last-good fallback;
-2. install Python dependencies and Playwright;
-3. restore geocode/Eatigo caches;
-4. run AMEX refresh;
-5. augment GHA;
-6. discover full Eatigo directory;
-7. verify OneMap secrets;
-8. geocode with OneMap;
-9. refresh current-day Eatigo offers/cuisines;
-10. validate row counts and mappings;
-11. run `validate_data.py`;
-12. run pytest;
-13. deploy legacy Pages.
-
-Failure behaviour:
-
-- merchant source refresh failure can fall back to the last live merchant dataset;
-- Eatigo current-offer failure can fall back to the previous live snapshot;
-- a completely missing fallback causes the workflow to fail rather than publishing bad/empty data.
-
-# 12.2 Legacy Eatigo hourly refresh
-
-Workflow:
-
-`.github/workflows/eatigo-hourly.yml`
-
-Schedule:
-
-`23 * * * *` UTC — hourly.
-
-It restores the current production merchant directory, verifies the Eatigo directory is sufficiently complete, refreshes `eatigo_today.json`, validates the snapshot, and deploys it.
-
-# 12.3 SGDining root deployment
-
-Workflow:
-
-`.github/workflows/deploy.yml`
+### 14.1 deploy.yml — UI/code deployment
+Purpose: deploy front-end/document/data changes while preserving the current SGDining live datasets.
 
 Triggers:
 
-- push to `main` for production files;
-- hourly schedule at `37 * * * *` UTC;
-- optional workflow dispatch capability.
+- `workflow_dispatch`;
+- pushes to `main` for selected front-end/data/document paths.
 
-Important principle: normal operation should rely on push/schedule automation. A user should not have to manually rerun routine deployments.
+Important behaviour:
 
-Build stages:
+- fetches current last-good datasets from `https://sgdining.github.io/` itself;
+- never fetches from `wyattsingapore-ux`;
+- validates merchant, mapped, Eatigo and Accor lower bounds;
+- uploads a Pages artifact;
+- deploys through the `github-pages` environment.
 
-1. checkout SGDining repo;
-2. mirror current `merchants.json` and `eatigo_today.json` from the legacy deployed site;
-3. validate mirror size/mapping/Eatigo coverage;
-4. install Python, BeautifulSoup, Requests and Playwright;
-5. run `scripts/augment_accor.py`;
-6. validate Accor count, LC intersection, official links and unique IDs;
-7. run `scripts/enrich_program_links.py` for Love Dining and GHA links;
-8. ensure programme-link UI extension is included;
-9. configure Pages;
-10. upload Pages artifact;
-11. deploy using `github-pages` environment;
-12. report success/failure through a GitHub issue.
+### 14.2 refresh-and-deploy.yml — complete official-source rebuild
+Purpose: complete production rebuild from official sources.
 
-Deployment concurrency group:
+Schedule:
+`17 2 * * *` UTC = approximately **10:17 AM Singapore time daily**.
 
-`sgdining-pages`
+Also triggers when the data pipeline changes:
 
-`cancel-in-progress: true` is used so an older deployment does not overwrite a newer code/data revision.
+- `scripts/**`
+- `tests/**`
+- `requirements.txt`
+- `.github/workflows/refresh-and-deploy.yml`
 
-# 12.4 Accor discovery experiment
+Build sequence:
 
-Workflow:
+1. checkout SGDining;
+2. download current SGDining production data as last-good fallback;
+3. seed OneMap geocode cache from current verified SGDining coordinates;
+4. install Python dependencies and Chromium;
+5. refresh AMEX Love Dining + Lifestyle Credit;
+6. augment GHA;
+7. discover full Eatigo directory;
+8. geocode with OneMap when credentials exist, otherwise cache-only;
+9. augment Accor;
+10. enrich official links;
+11. refresh today’s Eatigo offers;
+12. validate counts/invariants;
+13. run `validate_data.py`;
+14. run pytest;
+15. upload Pages artifact;
+16. deploy.
 
-`.github/workflows/accor-discovery.yml`
+Failure behaviour: if a full merchant rebuild fails, restore current SGDining live merchant data. If current Eatigo offer refresh fails, restore the previous SGDining live Eatigo snapshot where available.
 
-Purpose:
+### 14.3 eatigo-hourly.yml — hourly Eatigo refresh
+Schedule: `23 * * * *` UTC.
 
-- isolated source investigation;
-- verify the official Accor map/structured feed;
-- capture diagnostic artifacts without modifying the production dataset.
+Sequence:
 
-Now that Accor production ingestion is working, this workflow can eventually be retained as a diagnostics tool or archived to reduce repository clutter.
+1. checkout;
+2. restore current merchant data from `https://sgdining.github.io/`;
+3. validate Eatigo and Accor sets;
+4. refresh `data/eatigo_today.json`;
+5. validate snapshot coverage;
+6. deploy.
 
----
+This workflow has no dependency on the old personal repository.
 
-# 13. Credentials and secrets
+### 14.4 accor-discovery.yml — diagnostic probe
+Used for isolated investigation of the Accor Singapore source. It is not required for ordinary production when `augment_accor.py` is healthy.
 
-## 13.1 OneMap
+### 14.5 Concurrency
+Production Pages workflows share the `sgdining-pages` concurrency group with `cancel-in-progress: false` so routine refresh/deployment jobs are serialized rather than intentionally cancelling another production deployment.
 
-Required by the full geocoding workflow:
+## 15. AUTHENTICATION, CREDENTIALS AND PERMISSIONS
+
+### 15.1 GitHub repository access
+The SGDining organisation owns the production repository. Repository writes should be performed through an authorised GitHub account/app with appropriate admin/push permission.
+
+### 15.2 GitHub Pages deployment authentication
+No personal GitHub token is embedded in source.
+
+Workflows use runtime permissions:
+
+```text
+contents: read
+pages: write
+id-token: write
+```
+
+Deployment uses `actions/configure-pages`, `actions/upload-pages-artifact` and `actions/deploy-pages` through the `github-pages` environment and GitHub’s short-lived runtime/OIDC identity. Do not add a long-lived PAT merely to deploy Pages.
+
+### 15.3 GITHUB_TOKEN
+GitHub automatically creates `github.token` for a workflow run when needed. It is runtime-scoped and should not be hard-coded.
+
+### 15.4 OneMap credentials
+Recommended repository secrets in `SGDining/sgdining.github.io`:
 
 ```text
 ONEMAP_API_EMAIL
 ONEMAP_API_PASSWORD
 ```
 
-At the current transitional stage these credentials are relied upon in the legacy repository's complete refresh pipeline.
-
-Before eliminating the legacy dependency, recreate/verify these repository secrets under `SGDining/sgdining.github.io` and test the full pipeline there.
-
-## 13.2 No client-side programme credentials
-
-The public static UI should not expose private API tokens. Official public source pages and public map/search endpoints are used where possible.
-
----
-
-# 14. Validation philosophy
-
-Every source integration should have both semantic and numerical safeguards.
-
-Examples currently used:
-
-- mirrored merchant dataset must not be empty;
-- mapped merchant count must not collapse to zero;
-- Eatigo directory must remain above a reasonable lower bound;
-- Eatigo live snapshot must attempt a sufficiently complete directory;
-- Accor directory count must remain within a plausible range;
-- Accor production set must not collapse below a minimum threshold;
-- Accor+LC must not unexpectedly become almost empty;
-- every Accor row must have an official/source link;
-- Accor IDs must be unique;
-- LD/GHA official-link coverage has minimum thresholds;
-- parser/matching tests are run in the full upstream build.
-
-When an official source changes structure, the correct response is to fail or fall back and fix the parser — not lower safeguards until the workflow turns green.
-
----
-
-# 15. Testing
-
-The `tests/` directory includes parser and matching regression tests, including coverage around:
-
-- AMEX parsers;
-- grouped Lifestyle Credit entries;
-- GHA augmentation;
-- Eatigo directory/current-day processing.
-
-Accor should gain dedicated permanent unit/regression tests using captured fixture data so the production algorithm can be validated without opening Accor in a browser for every test.
-
-Recommended test categories going forward:
-
-1. source parser fixture tests;
-2. normalization tests;
-3. same-location intersection tests;
-4. duplicate-ID tests;
-5. known-positive regression merchants such as Prego;
-6. known-negative ambiguous-brand tests;
-7. UI mode/filter smoke tests;
-8. data-count sanity checks.
-
----
-
-# 16. Operational runbook
-
-## 16.1 Normal feature/code change
-
-1. inspect the current production repository before editing;
-2. modify only required files;
-3. push/commit to `main`;
-4. allow the push-triggered SGDining workflow to run automatically;
-5. confirm both build and deploy succeed;
-6. review validation output/counts;
-7. only then describe the change as deployed/live.
-
-Do not say a feature is complete merely because code was committed.
-
-## 16.2 Source update or parser change
-
-1. preserve current last-good data;
-2. update parser on an isolated/diagnostic path when the source is unfamiliar;
-3. verify source counts and sample rows;
-4. validate intersections;
-5. merge into production;
-6. confirm deployment result;
-7. inspect a few known restaurants manually if practical.
-
-## 16.3 Failed deployment
-
-A failed GitHub Pages deployment does not remove the previously deployed successful site. Investigate the failed build/run; do not ask the user to repeatedly click rerun without first diagnosing the failure.
-
-## 16.4 Incorrect programme intersection
-
-For a reported wrong/missing restaurant:
-
-1. inspect the exact official programme source rows;
-2. identify whether the problem is extraction, normalization, outlet grouping, postal matching or name similarity;
-3. add a regression case;
-4. fix the generic matcher/parser where possible instead of hardcoding only the reported restaurant.
-
----
-
-# 17. Known technical debt / current risks
-
-## 17.1 Transitional dependency on personal legacy repository
-
-This is the most important architectural debt. `SGDining/sgdining.github.io` is publicly branded correctly, but the core AMEX/GHA/Eatigo datasets still originate from the legacy Pages deployment.
-
-Priority: move complete data generation into SGDining.
-
-## 17.2 README is behind production capability
-
-The current README predates several production features and still describes older Eatigo behaviour. `BLUEPRINT.md` should be treated as the more complete takeover document until README is refreshed.
-
-## 17.3 Accor UI extension is layered rather than fully integrated
-
-`accor-ui.js` overrides/extends base functions in `app.js`. This was useful for safe rapid rollout, but long term the code should be consolidated into a cleaner programme-adapter architecture.
-
-## 17.4 Deployment status issues create clutter
-
-The SGDining workflow currently creates a new GitHub issue for each deployment result. This is useful while stabilizing migration but produces many issues. Replace this later with one persistent status issue, deployment summary, or cleaner monitoring mechanism.
-
-## 17.5 Experimental Accor files/workflow
-
-The isolated discovery workflow and experiment scripts were useful during source research. Decide whether to archive them under `experiments/` or retain only a lightweight diagnostic tool.
-
-## 17.6 Programme rules change independently of directory membership
-
-Accor is a concrete example: the general restaurant directory and Accor+ benefit eligibility are not identical. Similar care should be used for future programmes.
-
-## 17.7 External-source fragility
-
-AMEX page markup/PDF structure, Eatigo front-end discovery, Accor GraphQL identifiers, Pan Pacific pages and Nominatim behaviour can all change. Validation and last-good fallbacks are mandatory.
-
----
-
-# 18. Recommended next development phases
-
-## Phase A — finish repository consolidation
-
-Highest priority.
-
-- migrate OneMap secrets to SGDining;
-- move full AMEX refresh into SGDining;
-- move GHA refresh into SGDining;
-- move full Eatigo directory + hourly offer refresh into SGDining;
-- make root Pages fallback URL logic aware that the repo is named `sgdining.github.io`;
-- run several successful cycles;
-- stop SGDining mirroring the old site;
-- archive/decommission legacy production only after verification.
-
-## Phase B — clean programme-adapter architecture
-
-Replace programme-specific monkey patches with a structured adapter model, for example:
+Optional alternative:
 
 ```text
-programme adapters
-  loveDining
-  lifestyleCredit
-  gha
-  accor
-  eatigo
-
-Each adapter provides:
-  match(row)
-  label
-  badge
-  officialUrl(row)
-  benefitNote(row)
-  cuisine(row)
-  price(row)
-  programmeSpecificFilters
+ONEMAP_TOKEN
 ```
 
-This will make future additions easier and reduce risk of one programme breaking another.
+Security rules:
 
-## Phase C — price filter
+- store as GitHub Actions secrets, never in JavaScript or committed files;
+- authentication happens at build time;
+- OneMap token must never be exposed to the public site;
+- do not print passwords/tokens in logs.
 
-Implement only where source data is trustworthy.
+Important migration note: GitHub does not expose secret values after creation, so values in the legacy repository cannot be read back and copied automatically. If SGDining does not yet contain these secrets, the workflow operates in **cache-only mode** using current verified coordinates. Add the same OneMap credentials to SGDining to support automatic geocoding of newly seen addresses.
 
-Accor currently supplies average-price metadata and is the strongest immediate candidate. Do not infer price bands for Love Dining/GHA/Eatigo without a reliable source.
+### 15.5 Other programme credentials
+AMEX, Pan Pacific/GHA, Eatigo and Accor integrations currently use public source material and do not store user/member credentials.
 
-Potential UI:
+### 15.6 Browser geolocation
+Uses the browser permission prompt. There is no SGDining account authentication.
 
-- Any price
-- under S$30
-- S$30–50
-- S$50–80
-- S$80+
+## 16. CREDENTIAL MATRIX
 
-Clearly label the basis, e.g. `Accor average price`, so it is not mistaken for a guaranteed bill amount.
+| Component | Custom secret? | Mechanism | Browser exposure |
+|---|---:|---|---:|
+| GitHub Pages deploy | No | `pages:write` + `id-token:write` | No |
+| Same-repo checkout | No | Actions runtime token | No |
+| OneMap new lookups | Yes | `ONEMAP_API_EMAIL` + `ONEMAP_API_PASSWORD`, or `ONEMAP_TOKEN` | Never |
+| AMEX | No | Public source | N/A |
+| Pan Pacific/GHA | No | Public source | N/A |
+| Eatigo | No | Public source | N/A |
+| Accor | No | Public source | N/A |
 
-## Phase D — richer benefit comparison
+## 17. VALIDATION AND SAFETY GUARDS
 
-Potential future enhancements:
+A source redesign should fail/fallback, not silently publish bad data.
 
-- show multiple programme badges on the same physical outlet;
-- rank by useful intersections;
-- “best benefit I can use here” summary;
-- user-selectable card/programme ownership profile stored locally in the browser;
-- no login required initially.
+Representative guards:
 
-## Phase E — observability/analytics
+- merchant row count above a plausible floor;
+- mapped row count above a plausible floor;
+- LD/GHA counts must not collapse unexpectedly;
+- Eatigo directory remains above 200 rows;
+- Eatigo current snapshot attempts a sufficiently complete directory;
+- Accor set remains above a plausible floor;
+- every Accor row retains an official/source link;
+- duplicate Accor IDs rejected;
+- parser/invariant tests run before full deployment.
 
-Optional privacy-conscious analytics could help answer:
+Do not weaken thresholds just to turn a failing workflow green. Diagnose the source/parser first.
 
-- most selected programme modes;
-- most searched districts;
-- how often users click official venue links;
-- mobile vs desktop usage.
+## 18. LAST-GOOD FALLBACK DESIGN
 
-Avoid collecting precise user geolocation in analytics.
+Before a full refresh, SGDining downloads its own current `merchants.json`. If the new source rebuild fails, that live file is restored. Before an Eatigo current-day refresh, the workflow preserves the current SGDining Eatigo snapshot and restores it on failure where available.
 
-## Phase F — branding/domain
+**Fallback source is SGDining’s own production site, not the legacy personal repository.**
 
-Current clean URL is adequate:
+## 19. TESTING STRATEGY
 
-`https://sgdining.github.io/`
+Existing tests cover parser/matching behaviour. Recommended permanent categories:
 
-A future custom domain can be added without changing product logic. If commercialized substantially, reassess whether GitHub Pages remains the preferred hosting platform.
+1. source fixture tests;
+2. normalization tests;
+3. grouped AMEX PDF cases;
+4. same-location intersection tests;
+5. ambiguous-brand negative tests;
+6. known-positive cases such as Prego;
+7. GHA property-context cases;
+8. Eatigo branch matching;
+9. Accor captured-response fixtures;
+10. duplicate-ID checks;
+11. UI smoke tests;
+12. mobile filter behaviour;
+13. link-routing tests;
+14. count sanity checks.
 
----
+## 20. CURRENT VALIDATED BASELINES
 
-# 19. Security, privacy and responsible data use
+Counts are operational references, not contractual constants. Recent August 2026 rollout baselines included approximately:
 
-SGDining is currently a static public application with no user account system.
+- 738 merchant/location rows before SGDining Accor augmentation;
+- 711 mapped rows;
+- 317 verified Singapore Eatigo branches;
+- Love Dining link coverage 87/87;
+- GHA/Pan Pacific around 17 outlets;
+- Accor around 31 venues;
+- Accor + Lifestyle Credit around 11 venues.
 
-Privacy principles:
+Treat the latest successful workflow output as the current count source.
 
-- browser geolocation is used to calculate nearby restaurants and is not intentionally stored server-side;
-- do not add tracking of precise coordinates;
-- do not expose OneMap credentials or private tokens to the browser;
-- use official/public programme data for discovery;
-- link users back to programme owners for final terms and booking.
+## 21. OPERATIONAL RUNBOOK
 
-Data collection should remain proportionate. There is no need to build a user identity database merely to provide nearby dining results.
+### 21.1 Normal UI feature change
+1. inspect current `main`;
+2. modify required front-end files;
+3. commit/push to `main`;
+4. allow `deploy.yml` to run;
+5. confirm build/deploy success;
+6. verify production;
+7. only then call the feature live.
 
----
+### 21.2 Data parser change
+1. preserve fixtures/baselines;
+2. update script;
+3. add regression test;
+4. push;
+5. `refresh-and-deploy.yml` runs because pipeline files changed;
+6. inspect validation output;
+7. verify known merchants/intersections.
 
-# 20. Legal/accuracy disclaimer
+### 21.3 Add a new programme
+Identify official source, document benefit caveats, build parser/adapter, add programme flags/source metadata, define outlet-level intersection rules, add official-link behaviour, count/duplicate safeguards, regression tests, selector/filter UI and update the disclaimer/source footer and blueprint.
 
-The product must continue to state that it is an unofficial community tool and is not affiliated with American Express, GHA DISCOVERY, Pan Pacific Hotels Group, Accor / ALL Accor+ Explorer, or Eatigo.
+### 21.4 Incorrect intersection report
+Inspect exact source records, determine extraction/grouping/normalization/location/similarity cause, add a regression case and fix the generic parser/matcher where practical.
 
-Programme eligibility, discount percentages, blackout dates, merchant participation and card/member terms can change. SGDining should help users discover possibilities, but users should verify the current programme/restaurant terms before spending.
+### 21.5 Failed deployment
+A failed Pages build normally leaves the previous successful deployment available. Diagnose the failing step before rerunning.
 
----
+## 22. DISASTER RECOVERY / TAKEOVER
 
-# 21. Takeover checklist for another developer/AI agent
+If chat history is lost:
 
-Before changing production, a new operator should read:
+1. open `SGDining/sgdining.github.io`;
+2. read `BLUEPRINT.md`;
+3. read `refresh-and-deploy.yml`;
+4. read `eatigo-hourly.yml`;
+5. read `deploy.yml`;
+6. inspect latest workflow runs;
+7. inspect `data/merchants.json` and `data/eatigo_today.json`;
+8. inspect `app.js`, `program-links.js`, `accor-ui.js`;
+9. inspect source scripts;
+10. verify OneMap secrets if authenticated new-address geocoding is required;
+11. run tests before material parser changes.
 
-1. `BLUEPRINT.md` — overall architecture and rules;
-2. `.github/workflows/deploy.yml` — current SGDining deployment path;
-3. `index.html` — current programme modes and script load order;
-4. `app.js` — core map/search/filter logic;
-5. `program-links.js` — official link behaviour;
-6. `accor-ui.js` — current Accor UI extension;
-7. `scripts/enrich_program_links.py` — LD/GHA official link extraction;
-8. `scripts/augment_accor.py` — Accor programme generation/intersection;
-9. legacy `.github/workflows/refresh-and-deploy.yml` — current full source generation;
-10. legacy `.github/workflows/eatigo-hourly.yml` — current live Eatigo refresh.
+Do not restore the legacy `wyattsingapore-ux` dependency as the first recovery option. SGDining is designed to operate independently.
 
-Then verify the latest GitHub Pages deployment result before touching data-generation logic.
+## 23. SECURITY AND PRIVACY
 
-Never assume README text is current when code/workflows conflict with it; inspect the current production files and the latest successful workflow output.
+- No SGDining user-account database is required for core functionality.
+- Browser geolocation should remain client-side except requests inherently needed by map/search services.
+- Do not add analytics that records exact coordinates.
+- Never commit OneMap password/token, GitHub PAT or future private API keys.
+- Treat third-party structured/scraped responses as untrusted and validate schema/counts.
+- Keep dependency and GitHub Action versions reasonably current.
 
----
+## 24. LEGAL / ACCURACY POSITIONING
 
-# 22. Current status summary — 19 August 2026
+The site should continue to state that it is an unofficial community tool and is not affiliated with American Express, GHA DISCOVERY, Pan Pacific Hotels Group, Accor, ALL Accor+ Explorer or Eatigo.
 
-**Production branding/migration**
+Programme eligibility, participation, discounts, blackout dates and terms can change. The official programme/restaurant remains authoritative for final spending/booking decisions.
 
-- `https://sgdining.github.io/` is live under the SGDining organization.
-- GitHub connector access to the SGDining organization is configured.
-- Legacy production remains available as an upstream/fallback source during transition.
+## 25. KNOWN TECHNICAL DEBT
 
-**Love Dining**
+### 25.1 Accor UI layering
+`accor-ui.js` extends `app.js` rather than using a formal common programme-adapter interface.
 
-- hotels + restaurants included;
-- LD+LC available;
-- official AMEX venue links implemented;
-- last verified coverage 87/87.
+### 25.2 README drift
+README may lag production features. `BLUEPRINT.md` and live code are more authoritative until README is refreshed.
 
-**Lifestyle Credit**
+### 25.3 Source fragility
+AMEX markup/PDF structure, Eatigo front end, Pan Pacific pages and Accor network calls can change.
 
-- dining/fashion merchant list integrated;
-- used as the intersection base for LD, GHA, Eatigo and Accor modes.
+### 25.4 Public geocoder usage
+Nearby-place search depends on a public geocoding endpoint and should respect reasonable usage.
 
-**GHA / Pan Pacific DISCOVERY**
+### 25.5 OneMap cache-only mode
+If SGDining repository secrets are absent, existing verified coordinates continue to work, but a newly introduced address may remain unmapped until credentials are added or cache is updated.
 
-- GHA List implemented;
-- Both GHA + Lifestyle Credit implemented;
-- official venue links implemented;
-- last verified link coverage 17/17.
+## 26. TARGET REFACTOR ARCHITECTURE
 
-**Eatigo**
+Move toward programme adapters:
 
-- full Singapore directory baseline 317 branches;
-- Eatigo List implemented;
-- Both Eatigo + Lifestyle Credit implemented;
-- current-day discount/time snapshot implemented;
-- cuisine, discount and time filters implemented;
-- direct branch click-through implemented.
+```text
+loveDining
+lifestyleCredit
+gha
+accor
+eatigo
+```
 
-**Accor**
+Each adapter should expose concepts such as `matches(row)`, label, badge, `officialUrl(row)`, `benefitNote(row)`, cuisine, price and programme-specific filters.
 
-- Accor List implemented and deployed;
-- Both Accor + Lifestyle Credit implemented and deployed;
-- official Accor restaurant links implemented;
-- current Accor+ exclusions/variations applied;
-- last successful production validation: 31 Accor venues, 11 Accor+LC intersections, 31/31 official/source links.
+## 27. FUTURE PRODUCT ROADMAP
 
-**Immediate architectural priority**
+### 27.1 Price filtering
+Use only source-backed price metadata. Accor already exposes average-price data and is the strongest current candidate.
 
-- remove SGDining's dependency on the legacy personal repository by moving the full AMEX/GHA/Eatigo/OneMap refresh pipeline into `SGDining/sgdining.github.io`.
+### 27.2 Benefit comparison
+Potentially show multiple programme badges, rank intersections and provide a `best benefit I can use here` summary.
 
----
+### 27.3 Local programme profile
+Allow users to select programmes/cards they have and store only in browser local storage. No login is initially necessary.
 
-# 23. Change-log policy
+### 27.4 Analytics
+If added, prefer coarse metrics such as selected programme, broad district, official-link click and device class. Do not collect precise geolocation.
 
-This blueprint is intended to be a living document.
+### 27.5 Custom domain
+The organisation-root URL is clean and functional; a custom domain can be introduced later without changing the core architecture.
 
-For major changes, update:
+## 28. MIGRATION HISTORY
 
-- version/date at the top;
-- current production modes;
-- source architecture;
-- workflow/schedule details;
-- validated baseline counts where relevant;
-- known technical debt;
-- current status summary.
+### 28.1 Original transitional state
+SGDining initially used the clean organisation Pages URL while AMEX/GHA/Eatigo data continued to be generated by `wyattsingapore-ux/amex-sg-benefit-finder` and mirrored into SGDining.
 
-Do not update counts as hard guarantees; record them as last-validated baselines with a date.
+### 28.2 Full repository migration — 19 August 2026
+The production architecture was changed so SGDining owns the complete refresh/deploy logic.
 
-## v1.0 — 19 August 2026
+Changes:
 
-Initial comprehensive blueprint created after:
+- `deploy.yml` stopped mirroring the legacy site;
+- `refresh-and-deploy.yml` rebuilds programme data directly from official sources;
+- `eatigo-hourly.yml` refreshes Eatigo entirely within SGDining;
+- last-good fallback comes from `sgdining.github.io` itself;
+- geocode cache is seeded from SGDining’s own verified production coordinates;
+- legacy personal repo is no longer a production dependency.
 
-- migration to `SGDining/sgdining.github.io`;
-- production Love Dining/GHA official website-link enrichment;
-- full Eatigo live-discount integration;
-- Accor / Accor+LC production rollout.
+### 28.3 Credential caveat
+GitHub secret values cannot be retrieved from the old repository after creation. OneMap secrets must therefore exist independently in the SGDining repository for authenticated geocoding of new addresses. Without them, production remains functional in cache-only geocoding mode.
+
+## 29. TAKEOVER CHECKLIST
+
+Before modifying production, inspect:
+
+1. this blueprint;
+2. current production site;
+3. latest `main` commit;
+4. latest Actions results;
+5. `deploy.yml`;
+6. `refresh-and-deploy.yml`;
+7. `eatigo-hourly.yml`;
+8. `app.js`;
+9. `program-links.js`;
+10. `accor-ui.js`;
+11. `refresh_data_fixed.py`;
+12. `augment_gha.py`;
+13. `augment_eatigo_resilient_v2.py`;
+14. `refresh_eatigo_today.py`;
+15. `geocode.py`;
+16. `augment_accor.py`;
+17. `enrich_program_links.py`;
+18. `validate_data.py`;
+19. `tests/`.
+
+## 30. CHANGE-LOG POLICY
+
+For each material change, update blueprint version/date, architecture, workflow names/schedules, authentication/secrets, source URLs, programme modes, matching rules, last validated counts where useful and known risks/status.
+
+Do not turn historical counts into hard-coded guarantees.
+
+### v1.1 — 19 August 2026
+
+- Converted blueprint to a complete SGDining-owned architecture.
+- Removed legacy `wyattsingapore-ux` repository from the normal production path.
+- Documented self-contained daily full refresh and hourly Eatigo refresh.
+- Added detailed deployment, authentication, secret, fallback and recovery documentation.
+- Documented OneMap cache-only behaviour and the remaining repository-secret requirement for newly seen addresses.
