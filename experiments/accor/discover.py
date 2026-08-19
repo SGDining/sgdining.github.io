@@ -9,8 +9,6 @@ from playwright.sync_api import sync_playwright
 URL='https://restaurantsandbars.accor.com/en/singapore/singapore/map'
 OUT=Path('experiments/accor/discovery.json')
 
-VENUE_HINTS=('restaurant','bar','cafe','lounge','grill','brasserie','bistro','dining','kitchen','terrace','club')
-
 
 def norm_url(href:str)->str:
     href=(href or '').strip()
@@ -22,6 +20,7 @@ def norm_url(href:str)->str:
 def main()->int:
     json_responses=[]
     response_urls=[]
+    search_payloads=[]
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True)
         context=browser.new_context(
@@ -39,6 +38,8 @@ def main()->int:
                 if 'application/json' in ctype:
                     data=resp.json()
                     json_responses.append({'url':u,'data':data})
+                    if 'operationName=SearchRestaurants' in u:
+                        search_payloads.append({'url':u,'data':data})
             except Exception:
                 pass
         page.on('response', on_response)
@@ -86,16 +87,13 @@ def main()->int:
         'official_singapore_link_count':len(links),
         'candidate_network_urls':sorted(set(response_urls))[:100],
         'json_responses':json_diag,
+        'search_restaurants':search_payloads,
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
-    print(json.dumps({'title':title,'links':len(links),'network_candidates':len(set(response_urls)),'json_responses':len(json_responses)},indent=2))
-    print('SAMPLE LINKS')
-    for x in links[:40]: print(x)
-    print('NETWORK URLS')
-    for u in sorted(set(response_urls))[:40]: print(u)
-    if len(links)<5 and not json_responses:
-        raise RuntimeError('Accor page loaded but exposed too little discoverable venue data')
+    print(json.dumps({'title':title,'links':len(links),'network_candidates':len(set(response_urls)),'json_responses':len(json_responses),'search_payloads':len(search_payloads)},indent=2))
+    if not search_payloads:
+        raise RuntimeError('Accor SearchRestaurants structured payload was not captured')
     return 0
 
 if __name__=='__main__':
