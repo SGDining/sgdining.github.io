@@ -44,3 +44,5 @@ print(json.dumps({
     'eatigo_advertised_region_results': advertised,
     'eatigo_source_mode': d.get('eatigo_source_mode'),
 },indent=2))
+
+# Migration cut-over validation trigger: SGDining repository secrets configured 2026-08-20.
