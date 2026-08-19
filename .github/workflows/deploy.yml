@@ -31,7 +31,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -65,7 +65,9 @@ jobs:
           python-version: '3.12'
 
       - name: Install data-enrichment dependencies
-        run: pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.32,<3'
+        run: |
+          pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.32,<3' 'playwright>=1.47,<2'
+          python -m playwright install --with-deps chromium
 
       - name: Add current ALL Accor+ Explorer Singapore dining venues
         run: python scripts/augment_accor.py
