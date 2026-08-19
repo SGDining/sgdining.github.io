@@ -1,0 +1,78 @@
+name: Deploy SGDining root site
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '37 * * * *' # mirror current production data hourly
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'app.js'
+      - 'styles.css'
+      - 'data/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'requirements.txt'
+      - '.github/workflows/deploy.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: sgdining-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mirror current live production datasets
+        run: |
+          set -euo pipefail
+          mkdir -p data
+          base='https://wyattsingapore-ux.github.io/amex-sg-benefit-finder'
+          curl --fail --location --retry 4 --retry-delay 2 "$base/data/merchants.json" --output data/merchants.json
+          curl --fail --location --retry 4 --retry-delay 2 "$base/data/eatigo_today.json" --output data/eatigo_today.json
+
+      - name: Validate mirrored datasets
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          merchants=json.loads(Path('data/merchants.json').read_text(encoding='utf-8')).get('merchants',[])
+          live=json.loads(Path('data/eatigo_today.json').read_text(encoding='utf-8'))
+          eatigo=[m for m in merchants if m.get('eatigo') and m.get('eatigo_url')]
+          mapped=sum(m.get('lat') is not None and m.get('lng') is not None for m in merchants)
+          attempted=int(live.get('restaurants_attempted') or 0)
+          print(f'merchants={len(merchants)} mapped={mapped} eatigo={len(eatigo)} live_attempted={attempted}')
+          if not merchants or mapped == 0:
+              raise SystemExit('Mirrored production merchant dataset is invalid')
+          if len(eatigo) < 200 or attempted < 200:
+              raise SystemExit('Mirrored Eatigo dataset is incomplete')
+          PY
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy SGDining root site
+        id: deployment
+        uses: actions/deploy-pages@v4
