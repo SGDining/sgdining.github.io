@@ -4,7 +4,7 @@
   function programmeUrlFor(m, mode) {
     if (mode === 'ld' || mode === 'both') return m.ld_website_url || null;
     if (mode === 'gha' || mode === 'ghalc') return m.gha_website_url || null;
-    if (mode === 'accor' || mode === 'accorlc') return m.accor_website_url || null;
+    if (mode === 'accor' || mode === 'accorlc') return m.accor_website_url || m.accor_url || null;
     return null;
   }
 
@@ -13,6 +13,11 @@
     if (mode === 'gha' || mode === 'ghalc') return 'official GHA venue website';
     if (mode === 'accor' || mode === 'accorlc') return 'official Accor venue website';
     return 'official website';
+  }
+
+  function programmeName(m, mode) {
+    if ((mode === 'accor' || mode === 'accorlc') && m.accor_name) return m.accor_name;
+    return m.name;
   }
 
   function applyProgrammeLinks() {
@@ -32,7 +37,7 @@
       mk.off('click');
       mk.on('click', () => window.open(url, '_blank', 'noopener'));
       mk.bindTooltip(
-        `<strong>${esc(m.name)}</strong><br><small>Click to open ${esc(programmeLabel(mode))} ↗</small>`,
+        `<strong>${esc(programmeName(m, mode))}</strong><br><small>Click to open ${esc(programmeLabel(mode))} ↗</small>`,
         { direction: 'top', opacity: 0.97 }
       );
       const el = mk.getElement();
