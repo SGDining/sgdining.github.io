@@ -10,7 +10,6 @@ on:
       - 'scripts/**'
       - 'tests/**'
       - 'requirements.txt'
-      - '.github/workflows/refresh-and-deploy.yml'
 
 permissions:
   contents: read
@@ -73,7 +72,7 @@ jobs:
       - name: Install refresh dependencies
         run: |
           pip install -r requirements.txt
-          python -m playwright install --with-deps chromium
+          python -m playwright install chromium
 
       - name: Rebuild merchant dataset directly from official sources
         env:
