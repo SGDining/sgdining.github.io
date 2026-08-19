@@ -176,9 +176,14 @@ def match_ld(merchant: dict, records: list[dict]) -> str | None:
     pc = str(merchant.get("postal_code") or "")
     best_url, best_score = None, 0.0
     for r in records:
-        if pc and r["postals"] and pc not in r["postals"]:
-            continue
         s = max(score(merchant.get("name"), r["name"]), score(merchant.get("brand"), r["name"]))
+        # Normally require the same postal code when AMEX exposes one. Some
+        # AMEX partner entries group several outlets under one exact brand and
+        # a single Visit Website link (e.g. Spizza). An exact brand/name match
+        # is safe to reuse across those grouped outlets because the URL itself
+        # still comes directly from AMEX; fuzzy matches keep the postal guard.
+        if pc and r["postals"] and pc not in r["postals"] and s < 0.98:
+            continue
         if s > best_score:
             best_url, best_score = r["url"], s
     return best_url if best_score >= 0.72 else None
