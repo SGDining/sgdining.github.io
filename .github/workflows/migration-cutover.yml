@@ -3,7 +3,7 @@ name: Verify SGDining migration cutover
 on:
   workflow_dispatch:
   schedule:
-    - cron: '33 16 19 8 *' # one-time cutover trigger: 2026-08-20 00:33 Singapore / 2026-08-19 16:33 UTC
+    - cron: '33 16 19 8 *' # temporary one-time cutover trigger; remove after validation
   issues:
     types: [opened]
   push:
@@ -15,6 +15,7 @@ permissions:
   contents: write
   pages: write
   id-token: write
+  issues: write
 
 concurrency:
   group: sgdining-pages
@@ -53,32 +54,13 @@ jobs:
           fi
           echo 'OneMap repository secrets are present.'
 
-      - name: Record cutover run ID
+      - name: Announce cutover run
         env:
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          python - <<'PY'
-          import json, os
-          from datetime import datetime, timezone
-          from pathlib import Path
-          Path('data').mkdir(exist_ok=True)
-          payload={
-              'status':'running',
-              'repository':'SGDining/sgdining.github.io',
-              'run_id':int(os.environ['RUN_ID']),
-              'run_attempt':int(os.environ['RUN_ATTEMPT']),
-              'started_at':datetime.now(timezone.utc).isoformat(),
-              'onemap_authenticated':True,
-              'legacy_repo_dependency':False,
-          }
-          Path('data/migration_status.json').write_text(json.dumps(payload,indent=2),encoding='utf-8')
-          PY
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add data/migration_status.json
-          git commit -m "chore: SGDining migration cutover started [skip ci]" || true
-          git push origin HEAD:main
+          gh issue create \
+            --title "SGDining migration cutover RUNNING - run $GITHUB_RUN_ID" \
+            --body "Self-contained migration verification started.\n\nRepository: $GITHUB_REPOSITORY\nRun: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\nOneMap secrets: present\nLegacy production dependency: none"
 
       - name: Preserve current SGDining live data as emergency fallback and seed coordinates
         run: |
@@ -164,7 +146,7 @@ jobs:
           python scripts/validate_data.py
           python -m pytest -q
 
-      - name: Write successful cutover status and persist SGDining-owned datasets
+      - name: Persist successful SGDining-owned datasets
         env:
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
@@ -195,9 +177,11 @@ jobs:
           }
           Path('data/migration_status.json').write_text(json.dumps(payload,indent=2),encoding='utf-8')
           PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/merchants.json data/eatigo_today.json data/geocodes.json data/migration_status.json
           git commit -m "chore(data): persist fully migrated SGDining refresh run $GITHUB_RUN_ID [skip ci]" || true
-          git push origin HEAD:main
+          git push origin HEAD:main || echo '::warning::Could not persist refreshed datasets to main; deployment will still use the validated build artifact.'
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
@@ -212,34 +196,19 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-      - name: Record failed cutover status
+      - name: Announce successful cutover
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "SGDining migration cutover SUCCESS - run $GITHUB_RUN_ID" \
+            --body "Full SGDining-owned refresh, validation and GitHub Pages deployment succeeded.\n\nRun: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\nOneMap: authenticated\nLegacy wyattsingapore-ux production dependency: none\nWebsite: https://sgdining.github.io/"
+
+      - name: Record failed cutover
         if: failure()
         env:
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          python - <<'PY'
-          import json, os
-          from datetime import datetime, timezone
-          from pathlib import Path
-          path=Path('data/migration_status.json')
-          try:
-              payload=json.loads(path.read_text(encoding='utf-8'))
-          except Exception:
-              payload={}
-          payload.update({
-              'status':'failed',
-              'repository':'SGDining/sgdining.github.io',
-              'run_id':int(os.environ['RUN_ID']),
-              'run_attempt':int(os.environ['RUN_ATTEMPT']),
-              'failed_at':datetime.now(timezone.utc).isoformat(),
-              'legacy_repo_dependency':False,
-          })
-          path.parent.mkdir(exist_ok=True)
-          path.write_text(json.dumps(payload,indent=2),encoding='utf-8')
-          PY
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add data/migration_status.json
-          git commit -m "chore: SGDining migration cutover failed run $GITHUB_RUN_ID [skip ci]" || true
-          git push origin HEAD:main || true
+          gh issue create \
+            --title "SGDining migration cutover FAILED - run $GITHUB_RUN_ID" \
+            --body "The strict cutover validation failed. The previous live SGDining deployment remains the fallback.\n\nRun: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
