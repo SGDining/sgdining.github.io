@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '33 16 19 8 *' # one-time cutover trigger: 2026-08-20 00:33 Singapore / 2026-08-19 16:33 UTC
+  issues:
+    types: [opened]
   push:
     branches: [main]
     paths:
@@ -20,6 +22,7 @@ concurrency:
 
 jobs:
   cutover:
+    if: github.event_name != 'issues' || github.event.issue.title == 'SGDining Migration Cutover Trigger'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment:
