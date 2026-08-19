@@ -10,6 +10,7 @@ on:
       - 'index.html'
       - 'app.js'
       - 'program-links.js'
+      - 'accor-ui.js'
       - 'styles.css'
       - 'data/**'
       - 'scripts/**'
@@ -63,8 +64,34 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install link-enrichment dependencies
+      - name: Install data-enrichment dependencies
         run: pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.32,<3'
+
+      - name: Add current ALL Accor+ Explorer Singapore dining venues
+        run: python scripts/augment_accor.py
+
+      - name: Validate Accor integration
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('data/merchants.json').read_text(encoding='utf-8'))
+          merchants=data.get('merchants',[])
+          accor=[m for m in merchants if m.get('accor')]
+          both=[m for m in accor if m.get('lc')]
+          linked=[m for m in accor if m.get('accor_website_url')]
+          ids=[m.get('accor_id') for m in accor if m.get('accor_id')]
+          print(f'accor={len(accor)} accor_lc={len(both)} official_links={len(linked)} ids={len(ids)} unique_ids={len(set(ids))}')
+          print('Accor+LC:', ', '.join(sorted(str(m.get('accor_name') or m.get('name')) for m in both)))
+          if len(accor) < 25:
+              raise SystemExit('Accor production set is unexpectedly small')
+          if len(both) < 5:
+              raise SystemExit('Accor + Lifestyle Credit intersection is unexpectedly small')
+          if len(linked) != len(accor):
+              raise SystemExit('Not every Accor row has an official/source link')
+          if len(ids) != len(set(ids)):
+              raise SystemExit('Duplicate Accor restaurant IDs found')
+          PY
 
       - name: Enrich Love Dining and GHA official website links
         run: python scripts/enrich_program_links.py
@@ -75,7 +102,7 @@ jobs:
           from pathlib import Path
           p=Path('index.html')
           html=p.read_text(encoding='utf-8')
-          tag='<script src="program-links.js?v=20260819-2245"></script>'
+          tag='<script src="program-links.js?v=20260819-2258"></script>'
           if 'program-links.js' not in html:
               html=html.replace('</body>', tag+'\n</body>')
           p.write_text(html, encoding='utf-8')
