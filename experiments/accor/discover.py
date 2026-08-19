@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Isolated probe only; production data is not modified by this script.
 from __future__ import annotations
 import json, re
 from pathlib import Path
@@ -47,7 +48,6 @@ def main()->int:
         title=page.title()
         if 'verify that you' in body.lower() and 'robot' in body.lower():
             raise RuntimeError('Accor map remained on anti-bot verification page in browser')
-        # Trigger lazy content.
         for _ in range(8):
             page.mouse.wheel(0, 1600)
             page.wait_for_timeout(500)
@@ -70,7 +70,6 @@ def main()->int:
         seen.add(key)
         links.append({'text':text,'url':href})
 
-    # Keep a compact network diagnostic. JSON bodies can be huge, so report shapes only.
     json_diag=[]
     for item in json_responses[:30]:
         d=item['data']
