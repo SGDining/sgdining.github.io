@@ -21,6 +21,7 @@ def main()->int:
     json_responses=[]
     response_urls=[]
     search_payloads=[]
+    click_probe={}
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True)
         context=browser.new_context(
@@ -31,7 +32,7 @@ def main()->int:
         page=context.new_page()
         def on_response(resp):
             u=resp.url
-            if any(k in u.lower() for k in ('restaurant','search','map','venue','poi','location')):
+            if any(k in u.lower() for k in ('restaurant','search','map','venue','poi','location','graphql')):
                 response_urls.append(u)
             try:
                 ctype=(resp.headers.get('content-type') or '').lower()
@@ -49,10 +50,25 @@ def main()->int:
         title=page.title()
         if 'verify that you' in body.lower() and 'robot' in body.lower():
             raise RuntimeError('Accor map remained on anti-bot verification page in browser')
-        for _ in range(8):
-            page.mouse.wheel(0, 1600)
-            page.wait_for_timeout(500)
+        for _ in range(4):
+            page.mouse.wheel(0, 1000)
+            page.wait_for_timeout(400)
         anchors=page.locator('a[href]').evaluate_all("els => els.map(a => ({text:(a.innerText||a.textContent||'').trim(), href:a.href}))")
+
+        # Capture how an actual restaurant card routes to its official venue page.
+        try:
+            target=page.get_by_text('ANTI:DOTE', exact=True).first
+            target.scroll_into_view_if_needed(timeout=5000)
+            click_probe['target_html']=target.evaluate("el => el.parentElement ? el.parentElement.outerHTML.slice(0,5000) : el.outerHTML")
+            before=page.url
+            pages_before=len(context.pages)
+            target.click(timeout=7000)
+            page.wait_for_timeout(3500)
+            active=context.pages[-1]
+            click_probe.update({'before_url':before,'after_url':active.url,'pages_before':pages_before,'pages_after':len(context.pages)})
+        except Exception as exc:
+            click_probe['error']=repr(exc)
+
         browser.close()
 
     links=[]
@@ -72,7 +88,7 @@ def main()->int:
         links.append({'text':text,'url':href})
 
     json_diag=[]
-    for item in json_responses[:30]:
+    for item in json_responses:
         d=item['data']
         if isinstance(d,dict): shape={'type':'dict','keys':list(d.keys())[:30]}
         elif isinstance(d,list): shape={'type':'list','length':len(d),'sample_type':type(d[0]).__name__ if d else None}
@@ -85,13 +101,14 @@ def main()->int:
         'body_prefix':body[:1200],
         'official_singapore_links':links,
         'official_singapore_link_count':len(links),
-        'candidate_network_urls':sorted(set(response_urls))[:100],
+        'candidate_network_urls':sorted(set(response_urls))[:220],
         'json_responses':json_diag,
         'search_restaurants':search_payloads,
+        'click_probe':click_probe,
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
-    print(json.dumps({'title':title,'links':len(links),'network_candidates':len(set(response_urls)),'json_responses':len(json_responses),'search_payloads':len(search_payloads)},indent=2))
+    print(json.dumps({'title':title,'links':len(links),'network_candidates':len(set(response_urls)),'json_responses':len(json_responses),'search_payloads':len(search_payloads),'click_probe':click_probe},indent=2))
     if not search_payloads:
         raise RuntimeError('Accor SearchRestaurants structured payload was not captured')
     return 0
