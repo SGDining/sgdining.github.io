@@ -4,6 +4,13 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '17 2 * * *' # 10:17 AM Singapore time (UTC+8)
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - 'requirements.txt'
+      - '.github/workflows/refresh-and-deploy.yml'
 
 permissions:
   contents: read
