@@ -1,87 +1,125 @@
-# Singapore Dining Benefit Finder — AMEX + GHA + Eatigo
+# Singapore Dining Benefit Finder
 
-An independent static map/search app for Singapore dining and lifestyle benefits:
+SGDining is an independent static map/search app for Singapore dining and lifestyle benefits.
 
-- **Love Dining (LD)** — combines the current AMEX Love Dining hotel and restaurant partner pages.
-- **Lifestyle Credit (LC)** — uses the current AMEX Platinum Credit Card Fashion & Dining Credit participating-merchant PDF.
-- **Both (LD + LC)** — strict outlet/location-level intersection.
-- **GHA List** — Singapore Pan Pacific Hotels Group operated restaurants and bars participating in Pan Pacific DISCOVERY dining savings.
-- **GHA + LC** — GHA dining outlets that also match an AMEX Lifestyle Credit outlet.
-- **Eatigo List** — restaurants currently listed in Eatigo's Singapore search, with a direct Eatigo link.
-- **Eatigo + LC** — Eatigo listings that can be matched safely to an AMEX Lifestyle Credit dining outlet.
+Production site: `https://sgdining.github.io/`
 
-## Data sources
+## Current programme views
 
-- Love Dining hotels: https://www.americanexpress.com/sg/benefits/love-dining/love-dining-hotels.html
-- Love Dining restaurants: https://www.americanexpress.com/sg/benefits/love-dining/love-restaurants.html
-- Fashion & Dining Credit PDF: https://www.americanexpress.com/content/dam/amex/en-sg/benefits/platinum-credit-card-fashion-dining-credit-participating-merchants.pdf
-- Pan Pacific DISCOVERY participating restaurants: https://www.panpacific.com/en/dining/pphg-fb.html
-- Pan Pacific DISCOVERY benefit details: https://www.panpacific.com/en/panpacific-discovery/benefits.html
-- Eatigo Singapore restaurant search: https://eatigo.com/en/regions/27/search
+- **Love Dining (LD)** — AMEX Love Dining hotel + restaurant partner pages.
+- **Lifestyle Credit (LC)** — AMEX Platinum Fashion & Dining Credit participating merchants.
+- **Both — LD + Lifestyle Credit** — strict outlet/location-level intersection.
+- **GHA List** — Pan Pacific Hotels Group restaurants participating in Pan Pacific DISCOVERY / GHA DISCOVERY dining savings.
+- **Both GHA + Lifestyle Credit** — location-level intersection.
+- **Accor List** — eligible Singapore ALL Accor+ Explorer dining venues sourced from Accor’s official restaurant directory and benefit-variation rules.
+- **Both Accor + Lifestyle Credit** — conservative outlet-level intersection.
+- **Eatigo List** — verified Singapore Eatigo branches with direct branch links and current-day offer data.
+- **Both Eatigo + Lifestyle Credit** — conservative branch/location-level intersection.
 
-The GitHub Actions job refreshes the source lists daily before deployment.
+## Production ownership
 
-## Eatigo — deliberately simple
+The complete production pipeline now lives in **`SGDining/sgdining.github.io`**.
 
-The Eatigo integration is intentionally **list-only**. It does **not** collect, store or synchronize Eatigo time slots or discount percentages.
+The former `wyattsingapore-ux/amex-sg-benefit-finder` repository is legacy/archive only and is **not a production dependency**.
 
-The build only crawls Eatigo's paginated Singapore search result pages to capture:
+SGDining itself now performs:
 
-- restaurant / outlet name;
-- Eatigo branch ID and direct Eatigo URL;
-- branch/property text already present in the listing name, when available.
+- AMEX Love Dining + Lifestyle Credit refresh;
+- GHA/Pan Pacific augmentation;
+- full Eatigo Singapore directory discovery;
+- Eatigo hourly current-day offer refresh;
+- OneMap geocoding/cache handling;
+- Accor discovery/augmentation;
+- official venue-link enrichment;
+- validation/tests;
+- GitHub Pages deployment.
 
-For `Eatigo + LC`, the build compares the Eatigo restaurant name against AMEX LC dining entries. A branch/property qualifier such as `@ PARKROYAL COLLECTION Marina Bay` is used when available. If multiple LC branches have the same restaurant name and the branch cannot be resolved confidently, the matcher deliberately leaves it out rather than guessing.
+See **`BLUEPRINT.md`** for the complete architecture, authentication, matching, deployment, fallback and takeover documentation.
 
-Eatigo-only entries are list-first and are not given invented precise map coordinates. Open Eatigo from the restaurant card to check current availability, booking times and discounts.
+## Main data sources
 
-## Pan Pacific DISCOVERY / GHA dining
+- Love Dining hotels: `https://www.americanexpress.com/sg/benefits/love-dining/love-dining-hotels.html`
+- Love Dining restaurants: `https://www.americanexpress.com/sg/benefits/love-dining/love-restaurants.html`
+- Lifestyle Credit PDF: `https://www.americanexpress.com/content/dam/amex/en-sg/benefits/platinum-credit-card-fashion-dining-credit-participating-merchants.pdf`
+- Pan Pacific DISCOVERY dining: `https://www.panpacific.com/en/dining/pphg-fb.html`
+- Pan Pacific DISCOVERY benefits: `https://www.panpacific.com/en/panpacific-discovery/benefits.html`
+- Eatigo Singapore: `https://eatigo.com/en/regions/27/search`
+- Accor Singapore restaurants: `https://restaurantsandbars.accor.com/en/singapore/singapore/map`
+- Accor+ Singapore dining variations: `https://www.accorplus.com/sg/dining-benefit-variations/`
 
-The site labels this view **GHA List** for convenience. The underlying source is the official Pan Pacific Hotels Group operated restaurant list for Pan Pacific DISCOVERY, which is part of GHA DISCOVERY.
+## Automation
 
-Current published dining savings by Pan Pacific DISCOVERY status:
+### Full refresh
 
-- Silver — 10%
-- Gold — 15%
-- Platinum — 20%
-- Titanium — 25%
+`.github/workflows/refresh-and-deploy.yml`
 
-The programme terms apply. `GHA + LC` identifies location-level candidates where the restaurant is also on the AMEX LC list.
+Runs daily at `17 2 * * *` UTC, approximately **10:17 AM Singapore time**, and also runs when the data pipeline changes.
+
+It rebuilds programme data directly from official sources, enriches/geocodes it, validates it, runs tests and deploys GitHub Pages.
+
+### Eatigo hourly refresh
+
+`.github/workflows/eatigo-hourly.yml`
+
+Runs at `23 * * * *` UTC. It restores the current SGDining merchant directory from `sgdining.github.io`, refreshes `eatigo_today.json`, validates coverage and redeploys.
+
+### UI/code deploy
+
+`.github/workflows/deploy.yml`
+
+Deploys front-end/document/data changes while preserving and validating SGDining’s own current production datasets.
 
 ## OneMap geocoding
 
-For automatic token renewal, provide these GitHub repository secrets:
+Recommended GitHub repository secrets:
 
 ```text
-ONEMAP_API_EMAIL=your OneMap account email
-ONEMAP_API_PASSWORD=your OneMap account password
+ONEMAP_API_EMAIL
+ONEMAP_API_PASSWORD
 ```
 
-`geocode.py` authenticates only at build time, caches verified coordinates in `data/geocodes.json`, and skips approximate Eatigo-only location labels.
+Optional alternative supported by `scripts/geocode.py`:
 
-## GitHub Pages deployment
+```text
+ONEMAP_TOKEN
+```
 
-1. In **Settings → Secrets and variables → Actions**, add `ONEMAP_API_EMAIL` and `ONEMAP_API_PASSWORD`.
-2. In **Settings → Pages**, set Source to **GitHub Actions**.
-3. Run **Refresh AMEX + GHA + Eatigo data and deploy Pages** once from Actions. It then refreshes daily at 10:17 AM Singapore time.
+If OneMap credentials are not present, the full refresh runs in **cache-only geocoding mode**, preserving verified coordinates from current SGDining production. For newly introduced addresses to be geocoded automatically, add the OneMap credentials to this SGDining repository.
 
-## Matching rules
+GitHub secret values cannot be read back from another repository after creation, so legacy repository secret values cannot be automatically copied by the migration code.
 
-AMEX LD+LC and GHA+LC use outlet/location-level matching. Eatigo+LC uses conservative restaurant-name + branch/property matching because the simple Eatigo list intentionally does not open every restaurant detail page for full addresses.
+## GitHub Pages authentication
 
-The pipelines include source-count and merge-integrity checks so a source redesign or pagination failure does not silently publish a severely truncated list.
+No long-lived PAT is required for normal Pages deployment. Workflows use GitHub Actions runtime permissions including:
+
+```text
+contents: read
+pages: write
+id-token: write
+```
+
+Deployment is performed with `actions/configure-pages`, `actions/upload-pages-artifact` and `actions/deploy-pages` through the `github-pages` environment.
 
 ## Main files
 
 - `index.html`, `styles.css`, `app.js` — static UI/map.
-- `scripts/refresh_data.py` / `scripts/refresh_data_fixed.py` — AMEX LD + LC extraction.
-- `scripts/augment_gha.py` — GHA/Pan Pacific dining extraction and GHA+LC intersection.
-- `scripts/augment_eatigo.py` — lightweight Eatigo restaurant-list crawl and Eatigo+LC matching.
-- `scripts/geocode.py` — OneMap authentication/geocoding and cache.
+- `program-links.js` — official Love Dining/GHA/Accor venue links.
+- `accor-ui.js` — Accor programme UI extension.
+- `scripts/refresh_data_fixed.py` — AMEX production refresh.
+- `scripts/augment_gha.py` — GHA augmentation.
+- `scripts/augment_eatigo_resilient_v2.py` — full Eatigo discovery.
+- `scripts/refresh_eatigo_today.py` — current-day Eatigo offers.
+- `scripts/geocode.py` — OneMap geocoding/cache.
+- `scripts/augment_accor.py` — Accor production augmentation.
+- `scripts/enrich_program_links.py` — official venue links.
 - `scripts/validate_data.py` — data invariants.
-- `.github/workflows/refresh-and-deploy.yml` — daily refresh + GitHub Pages deployment.
-- `tests/` — parser and intersection regression tests.
+- `tests/` — regression tests.
+- `BLUEPRINT.md` — complete takeover document.
+
+## Matching policy
+
+Intersections are conservative and outlet/location-aware. Brand-name similarity alone is not sufficient when the location cannot be resolved confidently. False positives are considered more damaging than a small number of omitted ambiguous matches.
 
 ## Disclaimer
 
-Unofficial community tool; not affiliated with American Express, GHA DISCOVERY, Pan Pacific Hotels Group or Eatigo. Always verify current eligibility, discounts, participating outlets, exclusions and programme/card terms before spending.
+Unofficial community tool; not affiliated with American Express, GHA DISCOVERY, Pan Pacific Hotels Group, Accor, ALL Accor+ Explorer or Eatigo. Always verify current eligibility, discounts, participating outlets, exclusions and programme/card terms before spending.
