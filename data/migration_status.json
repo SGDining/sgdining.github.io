@@ -1,8 +1,17 @@
 {
-  "status": "failed",
+  "status": "success",
   "repository": "SGDining/sgdining.github.io",
-  "run_id": 32277356470,
+  "run_id": 32280907294,
   "run_attempt": 1,
-  "failed_at": "2026-08-19T16:46:07.106015+00:00",
-  "legacy_repo_dependency": false
+  "completed_at": "2026-08-19T17:25:07.251798+00:00",
+  "onemap_authenticated": true,
+  "legacy_repo_dependency": false,
+  "merchants": 758,
+  "mapped": 731,
+  "love_dining": 87,
+  "lifestyle_credit": 363,
+  "gha": 17,
+  "eatigo": 317,
+  "accor": 31,
+  "eatigo_restaurants_attempted": 317
 }
