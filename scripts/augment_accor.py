@@ -2,8 +2,9 @@
 """Add eligible Singapore ALL Accor+ Explorer dining venues to merchants.json.
 
 Venue truth comes from the official Accor Restaurants & Bars Singapore search
-feed. Benefit exclusions/variations follow the official ALL Accor+ Explorer
-Singapore dining-benefit variations page.
+feed. The feed is protected against bare HTTP clients, so production first
+tries ordinary HTTP and then falls back to capturing Accor's own structured
+SearchRestaurants response in a headless Chromium session.
 """
 from __future__ import annotations
 
@@ -24,9 +25,9 @@ MAP_URL = "https://restaurantsandbars.accor.com/en/singapore/singapore/map"
 GRAPHQL_URL = "https://restaurantsandbars.accor.com/graphql/"
 VARIATIONS_URL = "https://www.accorplus.com/sg/dining-benefit-variations/"
 PERSISTED_HASH = "ced25e3bde4a0bcd363f4dd646fb8c87419a2cc6c2eb6cb9cc07be750881c75f"
-UA = "Mozilla/5.0 (compatible; SGDining/1.0)"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
 
-# Current Singapore exclusions on the official ALL Accor+ Explorer page.
+# Current Singapore exclusions published by ALL Accor+ Explorer.
 EXCLUDED_NAMES = {
     "long bar", "restaurant andre", "jaan by kirk westaway", "twg tea", "asia grand",
     "mama s kiss", "chara brasserie", "brunetti oro", "la table d emma",
@@ -52,8 +53,7 @@ def norm(value: str | None) -> str:
 
 
 def make_id(name: str, postal: str | None, accor_id: str | None) -> str:
-    raw = f"accor|{accor_id or ''}|{norm(name)}|{postal or ''}".encode()
-    return hashlib.sha1(raw).hexdigest()[:14]
+    return hashlib.sha1(f"accor|{accor_id or ''}|{norm(name)}|{postal or ''}".encode()).hexdigest()[:14]
 
 
 def sg_date() -> str:
@@ -61,12 +61,15 @@ def sg_date() -> str:
     return datetime.now(ZoneInfo("Asia/Singapore")).date().isoformat()
 
 
-def fetch_search_restaurants() -> list[dict]:
+def rows_from_payload(data: dict) -> list[dict]:
+    if data.get("errors"):
+        raise RuntimeError(f"Accor GraphQL errors: {data['errors']!r}")
+    return (((data.get("data") or {}).get("searchRestaurants") or {}).get("results") or [])
+
+
+def fetch_search_restaurants_http() -> list[dict]:
     variables = {
-        "citySlug": "singapore",
-        "countrySlug": "singapore",
-        "date": sg_date(),
-        "groupSize": 2,
+        "citySlug": "singapore", "countrySlug": "singapore", "date": sg_date(), "groupSize": 2,
         "searchFilters": {
             "AVERAGE_RATING": [], "FOOD_PREFERENCES": [], "OFFER_AND_LOYALTY": [],
             "STYLE_OF_FOOD": [], "THEMATIC": [], "available": False,
@@ -85,10 +88,57 @@ def fetch_search_restaurants() -> list[dict]:
         timeout=60,
     )
     r.raise_for_status()
-    data = r.json()
-    if data.get("errors"):
-        raise RuntimeError(f"Accor GraphQL errors: {data['errors']!r}")
-    return (((data.get("data") or {}).get("searchRestaurants") or {}).get("results") or [])
+    ctype = (r.headers.get("content-type") or "").lower()
+    if "json" not in ctype:
+        raise RuntimeError(f"Accor GraphQL returned non-JSON content-type {ctype!r}")
+    return rows_from_payload(r.json())
+
+
+def fetch_search_restaurants_browser() -> list[dict]:
+    from playwright.sync_api import sync_playwright
+
+    captured: list[dict] = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(locale="en-SG", user_agent=UA, viewport={"width": 1440, "height": 1000})
+        page = context.new_page()
+
+        def on_response(resp):
+            if "operationName=SearchRestaurants" not in resp.url:
+                return
+            try:
+                data = resp.json()
+                rows = rows_from_payload(data)
+                if rows:
+                    captured[:] = rows
+            except Exception:
+                pass
+
+        page.on("response", on_response)
+        page.goto(MAP_URL, wait_until="domcontentloaded", timeout=90000)
+        for _ in range(24):
+            if captured:
+                break
+            page.wait_for_timeout(500)
+        if not captured:
+            body = (page.locator("body").inner_text(timeout=10000) or "")[:600]
+            browser.close()
+            raise RuntimeError(f"Accor browser session did not expose SearchRestaurants data; page={body!r}")
+        browser.close()
+    return captured
+
+
+def fetch_search_restaurants() -> list[dict]:
+    try:
+        rows = fetch_search_restaurants_http()
+        if rows:
+            print(f"Accor source transport: HTTP ({len(rows)} rows)")
+            return rows
+    except Exception as exc:
+        print(f"Accor HTTP feed unavailable; using browser capture: {type(exc).__name__}: {exc}")
+    rows = fetch_search_restaurants_browser()
+    print(f"Accor source transport: browser ({len(rows)} rows)")
+    return rows
 
 
 def load_offline_search(path: Path) -> list[dict]:
@@ -98,7 +148,7 @@ def load_offline_search(path: Path) -> list[dict]:
         if not payloads:
             return []
         data = payloads[0].get("data") or {}
-    return (((data.get("data") or {}).get("searchRestaurants") or {}).get("results") or [])
+    return rows_from_payload(data)
 
 
 def candidate_label(m: dict) -> str:
@@ -109,9 +159,8 @@ def candidate_label(m: dict) -> str:
 
 def similarity(accor_name: str, m: dict, food_type: str | None) -> float:
     a = norm(accor_name)
-    texts = [m.get("name"), m.get("brand"), candidate_label(m), m.get("address")]
     best = 0.0
-    for text in texts:
+    for text in [m.get("name"), m.get("brand"), candidate_label(m), m.get("address")]:
         b = norm(text)
         if not a or not b:
             continue
@@ -122,7 +171,6 @@ def similarity(accor_name: str, m: dict, food_type: str | None) -> float:
         else:
             best = max(best, SequenceMatcher(None, a, b).ratio())
     label = norm(candidate_label(m))
-    # Resolve generic names such as SKAI: prefer the restaurant row over a bar row.
     if a and label.startswith(a):
         if "restaurant" in label and "bar" not in norm(food_type):
             best += 0.025
@@ -147,26 +195,23 @@ def find_lc_match(accor: dict, merchants: list[dict], used: set[int]) -> tuple[i
 
 def apply_fields(m: dict, r: dict, source_mode: str = "directory") -> None:
     name = clean(r.get("name"))
-    n = norm(name)
-    food_discount = 15 if n in FIFTEEN_PERCENT_NAMES else 30
-    m["accor"] = True
-    m["accor_id"] = clean(r.get("id")) or None
-    m["accor_name"] = name or clean(m.get("name"))
-    m["accor_url"] = (
-        f"https://restaurantsandbars.accor.com/en/restaurant/{r['id']}" if r.get("id") else VARIATIONS_URL
-    )
+    food_discount = 15 if norm(name) in FIFTEEN_PERCENT_NAMES else 30
+    m.update({
+        "accor": True,
+        "accor_id": clean(r.get("id")) or None,
+        "accor_name": name or clean(m.get("name")),
+        "accor_source": MAP_URL if source_mode == "directory" else VARIATIONS_URL,
+        "accor_food_type": clean(r.get("foodType")) or None,
+        "accor_average_price": r.get("averagePrice") if isinstance(r.get("averagePrice"), (int, float)) else None,
+        "accor_currency": clean(r.get("currency")) or "SGD",
+        "accor_food_discount": food_discount,
+        "accor_beverage_discount": 15,
+        "accor_benefit_note": "15% off food and beverage" if food_discount == 15 else "30% off food · 15% off beverages",
+        "accor_variation": food_discount != 30,
+        "accor_match_note": None,
+    })
+    m["accor_url"] = f"https://restaurantsandbars.accor.com/en/restaurant/{r['id']}" if r.get("id") else VARIATIONS_URL
     m["accor_website_url"] = m["accor_url"]
-    m["accor_source"] = MAP_URL if source_mode == "directory" else VARIATIONS_URL
-    m["accor_food_type"] = clean(r.get("foodType")) or None
-    m["accor_average_price"] = r.get("averagePrice") if isinstance(r.get("averagePrice"), (int, float)) else None
-    m["accor_currency"] = clean(r.get("currency")) or "SGD"
-    m["accor_food_discount"] = food_discount
-    m["accor_beverage_discount"] = 15
-    m["accor_benefit_note"] = (
-        "15% off food and beverage" if food_discount == 15 else "30% off food · 15% off beverages"
-    )
-    m["accor_variation"] = food_discount != 30
-    m["accor_match_note"] = None
     if r.get("lat") is not None and r.get("lon") is not None:
         m["lat"], m["lng"] = float(r["lat"]), float(r["lon"])
     if not m.get("postal_code") and r.get("zipCode"):
@@ -174,7 +219,6 @@ def apply_fields(m: dict, r: dict, source_mode: str = "directory") -> None:
 
 
 def promote_variation_only_existing(merchants: list[dict]) -> int:
-    """Add explicit variation-page venues when they already exist in our base dataset."""
     promoted = 0
     for target in sorted(FIFTEEN_PERCENT_NAMES):
         if any(m.get("accor") and norm(m.get("accor_name") or m.get("name")) == target for m in merchants):
@@ -189,15 +233,8 @@ def promote_variation_only_existing(merchants: list[dict]) -> int:
         if len(candidates) != 1:
             continue
         m = candidates[0]
-        apply_fields(
-            m,
-            {"name": target.title(), "id": None, "foodType": None, "averagePrice": None, "currency": "SGD"},
-            "variation",
-        )
-        if target == norm(m.get("name")):
-            m["accor_name"] = clean(m.get("name"))
-        else:
-            m["accor_name"] = target.title()
+        apply_fields(m, {"name": target.title(), "id": None, "currency": "SGD"}, "variation")
+        m["accor_name"] = clean(m.get("name")) if target == norm(m.get("name")) else target.title()
         m["accor_match_note"] = "Explicitly listed on official ALL Accor+ Explorer Singapore variations page"
         promoted += 1
     return promoted
@@ -215,7 +252,6 @@ def main() -> int:
     if not 20 <= len(rows) <= 100:
         raise RuntimeError(f"Unexpected Accor Singapore directory count: {len(rows)}")
 
-    # SGDining starts from a mirrored base dataset on every build, so reset prior build-time Accor state.
     for m in merchants:
         for field in list(m):
             if field == "accor" or field.startswith("accor_"):
@@ -240,29 +276,13 @@ def main() -> int:
             pc = clean(r.get("zipCode")) or None
             name = clean(r.get("name"))
             m = {
-                "name": name,
-                "brand": name,
-                "address": f"Singapore {pc}" if pc else "Singapore",
-                "postal_code": pc,
-                "category": "dining",
-                "ld": False,
-                "lc": False,
-                "gha": False,
-                "eatigo": False,
-                "ld_source": None,
-                "lc_section": None,
-                "match_note": None,
-                "gha_hotel": None,
-                "gha_source": None,
-                "gha_match_note": None,
-                "gha_tiers": None,
-                "eatigo_branch_id": None,
-                "eatigo_url": None,
-                "eatigo_location": None,
-                "eatigo_match_note": None,
-                "id": make_id(name, pc, clean(r.get("id"))),
-                "lat": None,
-                "lng": None,
+                "name": name, "brand": name, "address": f"Singapore {pc}" if pc else "Singapore",
+                "postal_code": pc, "category": "dining", "ld": False, "lc": False,
+                "gha": False, "eatigo": False, "ld_source": None, "lc_section": None,
+                "match_note": None, "gha_hotel": None, "gha_source": None,
+                "gha_match_note": None, "gha_tiers": None, "eatigo_branch_id": None,
+                "eatigo_url": None, "eatigo_location": None, "eatigo_match_note": None,
+                "id": make_id(name, pc, clean(r.get("id"))), "lat": None, "lng": None,
             }
             apply_fields(m, r)
             merchants.append(m)
@@ -280,24 +300,17 @@ def main() -> int:
     payload.setdefault("sources", {})["accor_restaurants"] = MAP_URL
     payload["sources"]["accor_dining_variations"] = VARIATIONS_URL
     stats = payload.setdefault("stats", {})
-    stats["accor_directory"] = len(rows)
-    stats["accor_excluded"] = len(excluded)
-    stats["accor"] = len(accor_rows)
-    stats["accor_lc"] = len(accor_lc)
-    stats["accor_variation15"] = sum(bool(m.get("accor_variation")) for m in accor_rows)
-    payload["merchants"] = sorted(
-        merchants,
-        key=lambda x: (clean(x.get("name")).lower(), clean(x.get("postal_code")), clean(x.get("address")).lower()),
-    )
+    stats.update({
+        "accor_directory": len(rows), "accor_excluded": len(excluded), "accor": len(accor_rows),
+        "accor_lc": len(accor_lc), "accor_variation15": sum(bool(m.get("accor_variation")) for m in accor_rows),
+    })
+    payload["merchants"] = sorted(merchants, key=lambda x: (clean(x.get("name")).lower(), clean(x.get("postal_code")), clean(x.get("address")).lower()))
     args.merchants.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(json.dumps({
-        "accor_directory": len(rows),
-        "accor_excluded": [clean(r.get("name")) for r in excluded],
-        "accor_eligible_from_directory": len(eligible),
-        "accor_variation_only_promoted": promoted,
-        "accor_total": len(accor_rows),
-        "accor_lc": len(accor_lc),
+        "accor_directory": len(rows), "accor_excluded": [clean(r.get("name")) for r in excluded],
+        "accor_eligible_from_directory": len(eligible), "accor_variation_only_promoted": promoted,
+        "accor_total": len(accor_rows), "accor_lc": len(accor_lc),
         "accor_lc_names": sorted(clean(m.get("accor_name") or m.get("name")) for m in accor_lc),
         "accor_new_rows": appended,
     }, indent=2))
