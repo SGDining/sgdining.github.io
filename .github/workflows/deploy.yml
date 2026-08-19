@@ -9,6 +9,7 @@ on:
     paths:
       - 'index.html'
       - 'app.js'
+      - 'program-links.js'
       - 'styles.css'
       - 'data/**'
       - 'scripts/**'
@@ -56,6 +57,28 @@ jobs:
               raise SystemExit('Mirrored production merchant dataset is invalid')
           if len(eatigo) < 200 or attempted < 200:
               raise SystemExit('Mirrored Eatigo dataset is incomplete')
+          PY
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install link-enrichment dependencies
+        run: pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.32,<3'
+
+      - name: Enrich Love Dining and GHA official website links
+        run: python scripts/enrich_program_links.py
+
+      - name: Enable programme website pin links in deployed UI
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          html=p.read_text(encoding='utf-8')
+          tag='<script src="program-links.js?v=20260819-2245"></script>'
+          if 'program-links.js' not in html:
+              html=html.replace('</body>', tag+'\n</body>')
+          p.write_text(html, encoding='utf-8')
           PY
 
       - name: Configure GitHub Pages
