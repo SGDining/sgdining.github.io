@@ -1,0 +1,240 @@
+name: Verify SGDining migration cutover
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/migration-cutover.yml'
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: sgdining-pages
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Verify SGDining OneMap secrets are configured
+        env:
+          ONEMAP_API_EMAIL: ${{ secrets.ONEMAP_API_EMAIL }}
+          ONEMAP_API_PASSWORD: ${{ secrets.ONEMAP_API_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ONEMAP_API_EMAIL" ]; then
+            echo '::error::ONEMAP_API_EMAIL is not configured in SGDining repository secrets.'
+            exit 1
+          fi
+          if [ -z "$ONEMAP_API_PASSWORD" ]; then
+            echo '::error::ONEMAP_API_PASSWORD is not configured in SGDining repository secrets.'
+            exit 1
+          fi
+          echo 'OneMap repository secrets are present.'
+
+      - name: Record cutover run ID
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          Path('data').mkdir(exist_ok=True)
+          payload={
+              'status':'running',
+              'repository':'SGDining/sgdining.github.io',
+              'run_id':int(os.environ['RUN_ID']),
+              'run_attempt':int(os.environ['RUN_ATTEMPT']),
+              'started_at':datetime.now(timezone.utc).isoformat(),
+              'onemap_authenticated':True,
+              'legacy_repo_dependency':False,
+          }
+          Path('data/migration_status.json').write_text(json.dumps(payload,indent=2),encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/migration_status.json
+          git commit -m "chore: SGDining migration cutover started [skip ci]" || true
+          git push origin HEAD:main
+
+      - name: Preserve current SGDining live data as emergency fallback and seed coordinates
+        run: |
+          set -euo pipefail
+          live='https://sgdining.github.io'
+          mkdir -p data
+          curl --fail --location --retry 4 --retry-delay 2 "$live/data/merchants.json" --output "$RUNNER_TEMP/merchants-last-good.json"
+          curl --fail --location --retry 3 --retry-delay 2 "$live/data/eatigo_today.json" --output "$RUNNER_TEMP/eatigo-today-last-good.json" || true
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          src=Path(os.environ['RUNNER_TEMP'])/'merchants-last-good.json'
+          rows=json.loads(src.read_text(encoding='utf-8')).get('merchants',[])
+          cache={}
+          for m in rows:
+              lat=m.get('lat'); lng=m.get('lng')
+              if lat is None or lng is None:
+                  continue
+              query=str(m.get('postal_code') or m.get('address') or m.get('name') or '').strip()
+              if not query:
+                  continue
+              cache[query.lower()]={
+                  'lat':lat,
+                  'lng':lng,
+                  'matched_address':m.get('geocode_address') or m.get('address'),
+                  'postal':m.get('geocode_postal') or m.get('postal_code'),
+                  'building':m.get('geocode_building'),
+                  'road_name':m.get('geocode_road'),
+                  'query':query,
+              }
+          Path('data/geocodes.json').write_text(json.dumps(cache,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(f'Seeded {len(cache)} coordinate cache entries from current SGDining production.')
+          PY
+
+      - name: Install refresh dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Strictly rebuild all merchant programmes from SGDining-owned code
+        env:
+          ONEMAP_API_EMAIL: ${{ secrets.ONEMAP_API_EMAIL }}
+          ONEMAP_API_PASSWORD: ${{ secrets.ONEMAP_API_PASSWORD }}
+        run: |
+          set -euo pipefail
+          python -m scripts.refresh_data_fixed
+          python -m scripts.augment_gha
+          python -m scripts.augment_eatigo_resilient_v2
+          python scripts/geocode.py
+          python scripts/augment_accor.py
+          python scripts/enrich_program_links.py
+
+      - name: Strictly refresh current Eatigo offers
+        run: |
+          set -euo pipefail
+          python scripts/refresh_eatigo_today.py --limit 0 --workers 8
+
+      - name: Validate fully migrated production dataset
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=json.loads(Path('data/merchants.json').read_text(encoding='utf-8')).get('merchants',[])
+          today=json.loads(Path('data/eatigo_today.json').read_text(encoding='utf-8'))
+          mapped=sum(m.get('lat') is not None and m.get('lng') is not None for m in rows)
+          ld=[m for m in rows if m.get('ld')]
+          gha=[m for m in rows if m.get('gha')]
+          eatigo=[m for m in rows if m.get('eatigo') and m.get('eatigo_url')]
+          accor=[m for m in rows if m.get('accor')]
+          accor_links=[m for m in accor if m.get('accor_website_url') or m.get('accor_url')]
+          attempted=int(today.get('restaurants_attempted') or 0)
+          print(f'merchants={len(rows)} mapped={mapped} LD={len(ld)} GHA={len(gha)} Eatigo={len(eatigo)} Accor={len(accor)} AccorLinks={len(accor_links)} EatigoAttempted={attempted}')
+          if len(rows) < 500: raise SystemExit('Merchant dataset is unexpectedly small')
+          if mapped < 400: raise SystemExit('Mapped merchant count is unexpectedly small')
+          if len(ld) < 50: raise SystemExit('Love Dining set is unexpectedly small')
+          if len(gha) < 10: raise SystemExit('GHA set is unexpectedly small')
+          if len(eatigo) < 200: raise SystemExit('Eatigo directory is unexpectedly small')
+          if len(accor) < 20: raise SystemExit('Accor directory is unexpectedly small')
+          if len(accor_links) != len(accor): raise SystemExit('Not all Accor rows have an official/source link')
+          if attempted < 200: raise SystemExit('Eatigo current-day snapshot is incomplete')
+          PY
+          python scripts/validate_data.py
+          python -m pytest -q
+
+      - name: Write successful cutover status and persist SGDining-owned datasets
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          merchant_doc=json.loads(Path('data/merchants.json').read_text(encoding='utf-8'))
+          rows=merchant_doc.get('merchants',[])
+          today=json.loads(Path('data/eatigo_today.json').read_text(encoding='utf-8'))
+          payload={
+              'status':'success',
+              'repository':'SGDining/sgdining.github.io',
+              'run_id':int(os.environ['RUN_ID']),
+              'run_attempt':int(os.environ['RUN_ATTEMPT']),
+              'completed_at':datetime.now(timezone.utc).isoformat(),
+              'onemap_authenticated':True,
+              'legacy_repo_dependency':False,
+              'merchants':len(rows),
+              'mapped':sum(m.get('lat') is not None and m.get('lng') is not None for m in rows),
+              'love_dining':sum(bool(m.get('ld')) for m in rows),
+              'lifestyle_credit':sum(bool(m.get('lc')) for m in rows),
+              'gha':sum(bool(m.get('gha')) for m in rows),
+              'eatigo':sum(bool(m.get('eatigo')) for m in rows),
+              'accor':sum(bool(m.get('accor')) for m in rows),
+              'eatigo_restaurants_attempted':int(today.get('restaurants_attempted') or 0),
+          }
+          Path('data/migration_status.json').write_text(json.dumps(payload,indent=2),encoding='utf-8')
+          PY
+          git add data/merchants.json data/eatigo_today.json data/geocodes.json data/migration_status.json
+          git commit -m "chore(data): persist fully migrated SGDining refresh run $GITHUB_RUN_ID [skip ci]" || true
+          git push origin HEAD:main
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy fully migrated SGDining site
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Record failed cutover status
+        if: failure()
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          path=Path('data/migration_status.json')
+          try:
+              payload=json.loads(path.read_text(encoding='utf-8'))
+          except Exception:
+              payload={}
+          payload.update({
+              'status':'failed',
+              'repository':'SGDining/sgdining.github.io',
+              'run_id':int(os.environ['RUN_ID']),
+              'run_attempt':int(os.environ['RUN_ATTEMPT']),
+              'failed_at':datetime.now(timezone.utc).isoformat(),
+              'legacy_repo_dependency':False,
+          })
+          path.parent.mkdir(exist_ok=True)
+          path.write_text(json.dumps(payload,indent=2),encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/migration_status.json
+          git commit -m "chore: SGDining migration cutover failed run $GITHUB_RUN_ID [skip ci]" || true
+          git push origin HEAD:main || true
