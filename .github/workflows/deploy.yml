@@ -67,7 +67,7 @@ jobs:
       - name: Install data-enrichment dependencies
         run: |
           pip install 'beautifulsoup4>=4.12,<5' 'requests>=2.32,<3' 'playwright>=1.47,<2'
-          python -m playwright install --with-deps chromium
+          python -m playwright install chromium
 
       - name: Add current ALL Accor+ Explorer Singapore dining venues
         run: python scripts/augment_accor.py
