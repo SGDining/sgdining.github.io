@@ -1,0 +1,113 @@
+name: Bootstrap migration from legacy production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bootstrap-migration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+  issues: write
+
+concurrency:
+  group: sgdining-bootstrap
+  cancel-in-progress: true
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy current production source
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/legacy
+          git clone --depth 1 https://github.com/wyattsingapore-ux/amex-sg-benefit-finder.git /tmp/legacy
+          rsync -a --delete \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            --exclude '.pytest_cache/' \
+            --exclude '__pycache__/' \
+            --exclude '*.pyc' \
+            /tmp/legacy/ ./
+
+      - name: Pull current deployed production datasets
+        run: |
+          set -euo pipefail
+          mkdir -p data
+          base='https://wyattsingapore-ux.github.io/amex-sg-benefit-finder'
+          curl --fail --location --retry 4 --retry-delay 2 "$base/data/merchants.json" --output data/merchants.json
+          curl --fail --location --retry 4 --retry-delay 2 "$base/data/eatigo_today.json" --output data/eatigo_today.json
+          curl --fail --location --retry 3 "$base/data/geocodes.json" --output data/geocodes.json || true
+          curl --fail --location --retry 3 "$base/data/eatigo_branch_cache.json" --output data/eatigo_branch_cache.json || true
+          curl --fail --location --retry 3 "$base/data/eatigo_snapshot.json" --output data/eatigo_snapshot.json || true
+
+      - name: Validate migrated production content
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          required=['index.html','app.js','styles.css','requirements.txt','data/merchants.json','data/eatigo_today.json']
+          missing=[p for p in required if not Path(p).is_file()]
+          if missing:
+              raise SystemExit(f'Missing migrated files: {missing}')
+          merchants=json.loads(Path('data/merchants.json').read_text(encoding='utf-8')).get('merchants',[])
+          live=json.loads(Path('data/eatigo_today.json').read_text(encoding='utf-8'))
+          eatigo=[m for m in merchants if m.get('eatigo') and m.get('eatigo_url')]
+          mapped=sum(m.get('lat') is not None and m.get('lng') is not None for m in merchants)
+          attempted=int(live.get('restaurants_attempted') or 0)
+          print(f'merchants={len(merchants)} mapped={mapped} eatigo={len(eatigo)} live_attempted={attempted}')
+          if not merchants or mapped == 0 or len(eatigo) < 200 or attempted < 200:
+              raise SystemExit('Migrated production datasets failed validation')
+          PY
+
+      - name: Commit migrated source and production snapshot
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'Migrated from wyattsingapore-ux/amex-sg-benefit-finder production on 2026-08-19.' > MIGRATION.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No migration changes to commit.'
+          else
+            git commit -m 'Migrate Singapore Dining Benefit Finder production source'
+            git push
+          fi
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy SGDining root site
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Report migration success
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "SGDining root migration SUCCESS - run $GITHUB_RUN_NUMBER" \
+            --body "Migration and deployment completed successfully. Root URL: https://sgdining.github.io/\n\nSource copied from the legacy production repository and current deployed datasets were validated before publish.\n\nRun: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
+
+      - name: Report migration failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "SGDining root migration FAILED - run $GITHUB_RUN_NUMBER" \
+            --body "The migration workflow failed. The legacy production site was not modified.\n\nRun: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
