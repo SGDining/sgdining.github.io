@@ -2,8 +2,6 @@ name: Verify SGDining migration cutover
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '33 16 19 8 *' # temporary one-time cutover trigger; remove after validation
   issues:
     types: [opened]
   push:
@@ -18,14 +16,14 @@ permissions:
   issues: write
 
 concurrency:
-  group: sgdining-pages
+  group: sgdining-cutover-fast
   cancel-in-progress: false
 
 jobs:
   cutover:
     if: github.event_name != 'issues' || github.event.issue.title == 'SGDining Migration Cutover Trigger'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 35
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -97,8 +95,9 @@ jobs:
 
       - name: Install refresh dependencies
         run: |
+          set -euo pipefail
           pip install -r requirements.txt
-          python -m playwright install --with-deps chromium
+          python -m playwright install chromium
 
       - name: Strictly rebuild all merchant programmes from SGDining-owned code
         env:
