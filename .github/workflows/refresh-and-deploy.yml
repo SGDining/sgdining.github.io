@@ -1,0 +1,169 @@
+name: Refresh all SGDining data and deploy
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 2 * * *' # 10:17 AM Singapore time (UTC+8)
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  issues: write
+
+concurrency:
+  group: sgdining-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preserve current SGDining production data as last-good fallback
+        run: |
+          set -euo pipefail
+          mkdir -p data
+          live='https://sgdining.github.io'
+          curl --fail --location --retry 4 --retry-delay 2 "$live/data/merchants.json" --output "$RUNNER_TEMP/merchants-last-good.json"
+          curl --fail --location --retry 3 --retry-delay 2 "$live/data/eatigo_today.json" --output "$RUNNER_TEMP/eatigo-today-last-good.json" || true
+
+      - name: Seed OneMap cache from current SGDining production coordinates
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          src=Path(__import__('os').environ['RUNNER_TEMP'])/'merchants-last-good.json'
+          rows=json.loads(src.read_text(encoding='utf-8')).get('merchants',[])
+          cache={}
+          for m in rows:
+              lat=m.get('lat'); lng=m.get('lng')
+              if lat is None or lng is None:
+                  continue
+              query=str(m.get('postal_code') or m.get('address') or m.get('name') or '').strip()
+              if not query:
+                  continue
+              cache[query.lower()]={
+                  'lat':lat,
+                  'lng':lng,
+                  'matched_address':m.get('geocode_address') or m.get('address'),
+                  'postal':m.get('geocode_postal') or m.get('postal_code'),
+                  'building':m.get('geocode_building'),
+                  'road_name':m.get('geocode_road'),
+                  'query':query,
+              }
+          Path('data/geocodes.json').write_text(json.dumps(cache,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(f'Seeded {len(cache)} coordinate cache entries from SGDining production.')
+          PY
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install refresh dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Rebuild merchant dataset directly from official sources
+        env:
+          ONEMAP_API_EMAIL: ${{ secrets.ONEMAP_API_EMAIL }}
+          ONEMAP_API_PASSWORD: ${{ secrets.ONEMAP_API_PASSWORD }}
+        run: |
+          set +e
+          ok=1
+          python -m scripts.refresh_data_fixed || ok=0
+          if [ "$ok" -eq 1 ]; then python -m scripts.augment_gha || ok=0; fi
+          if [ "$ok" -eq 1 ]; then python -m scripts.augment_eatigo_resilient_v2 || ok=0; fi
+          if [ "$ok" -eq 1 ]; then python scripts/geocode.py || ok=0; fi
+          if [ "$ok" -eq 1 ]; then python scripts/augment_accor.py || ok=0; fi
+          if [ "$ok" -eq 1 ]; then python scripts/enrich_program_links.py || ok=0; fi
+          set -e
+
+          if [ "$ok" -ne 1 ]; then
+            echo '::warning::Full refresh failed; restoring current SGDining production merchant dataset.'
+            cp "$RUNNER_TEMP/merchants-last-good.json" data/merchants.json
+          fi
+
+      - name: Refresh today's Eatigo offers and cuisines
+        run: |
+          set +e
+          python scripts/refresh_eatigo_today.py --limit 0 --workers 8
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            if [ -s "$RUNNER_TEMP/eatigo-today-last-good.json" ]; then
+              echo '::warning::Eatigo offer refresh failed; restoring current SGDining production snapshot.'
+              cp "$RUNNER_TEMP/eatigo-today-last-good.json" data/eatigo_today.json
+            else
+              exit "$status"
+            fi
+          fi
+
+      - name: Validate complete production dataset
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=json.loads(Path('data/merchants.json').read_text(encoding='utf-8')).get('merchants',[])
+          live=json.loads(Path('data/eatigo_today.json').read_text(encoding='utf-8'))
+          mapped=sum(m.get('lat') is not None and m.get('lng') is not None for m in rows)
+          eatigo=[m for m in rows if m.get('eatigo') and m.get('eatigo_url')]
+          accor=[m for m in rows if m.get('accor')]
+          ld=[m for m in rows if m.get('ld')]
+          gha=[m for m in rows if m.get('gha')]
+          accor_links=[m for m in accor if m.get('accor_website_url') or m.get('accor_url')]
+          print(f'merchants={len(rows)} mapped={mapped} LD={len(ld)} GHA={len(gha)} Eatigo={len(eatigo)} Accor={len(accor)} AccorLinks={len(accor_links)} EatigoAttempted={live.get("restaurants_attempted")}')
+          if len(rows) < 500:
+              raise SystemExit('Merchant dataset is unexpectedly small')
+          if mapped < 400:
+              raise SystemExit('Mapped merchant count is unexpectedly small')
+          if len(ld) < 50:
+              raise SystemExit('Love Dining set is unexpectedly small')
+          if len(gha) < 10:
+              raise SystemExit('GHA set is unexpectedly small')
+          if len(eatigo) < 200:
+              raise SystemExit('Eatigo directory is unexpectedly small')
+          if len(accor) < 20:
+              raise SystemExit('Accor directory is unexpectedly small')
+          if len(accor_links) != len(accor):
+              raise SystemExit('Not all Accor rows have an official/source link')
+          if int(live.get('restaurants_attempted') or 0) < 200:
+              raise SystemExit('Eatigo current-day snapshot is incomplete')
+          PY
+          python scripts/validate_data.py
+          python -m pytest -q
+
+      - name: Record OneMap credential status
+        env:
+          ONEMAP_API_EMAIL: ${{ secrets.ONEMAP_API_EMAIL }}
+          ONEMAP_API_PASSWORD: ${{ secrets.ONEMAP_API_PASSWORD }}
+        run: |
+          if [ -n "$ONEMAP_API_EMAIL" ] && [ -n "$ONEMAP_API_PASSWORD" ]; then
+            echo '### OneMap: authenticated geocoding enabled' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '### OneMap: cache-only mode' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Existing verified coordinates are retained. Add ONEMAP_API_EMAIL and ONEMAP_API_PASSWORD to this SGDining repository to geocode newly seen addresses automatically.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy refreshed SGDining site
+        id: deployment
+        uses: actions/deploy-pages@v4
