@@ -1,0 +1,58 @@
+name: Accor Singapore discovery probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/accor/**'
+      - '.github/workflows/accor-discovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: accor-discovery
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Playwright
+        run: |
+          pip install 'playwright>=1.47,<2'
+          python -m playwright install --with-deps chromium
+      - name: Probe official Accor Singapore map
+        id: probe
+        continue-on-error: true
+        run: python experiments/accor/discover.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: accor-discovery
+          path: experiments/accor/discovery.json
+          if-no-files-found: ignore
+          retention-days: 2
+      - name: Report probe
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROBE: ${{ steps.probe.outcome }}
+        run: |
+          count='unknown'
+          title='unknown'
+          if [ -f experiments/accor/discovery.json ]; then
+            count=$(python -c "import json; d=json.load(open('experiments/accor/discovery.json')); print(d.get('official_singapore_link_count','unknown'))")
+            title=$(python -c "import json; d=json.load(open('experiments/accor/discovery.json')); print(d.get('title','unknown'))")
+          fi
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Accor discovery ${PROBE^^} - run $GITHUB_RUN_NUMBER" \
+            --body "Official map probe outcome: $PROBE\n\nSingapore venue links found: $count\nPage title: $title\nRun: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
+          test "$PROBE" = success
