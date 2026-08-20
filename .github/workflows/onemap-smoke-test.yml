@@ -7,12 +7,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Test OneMap credentials and Orchard Towers search
         env:
           ONEMAP_API_EMAIL: ${{ secrets.ONEMAP_API_EMAIL }}
@@ -20,42 +22,63 @@ jobs:
         run: |
           python - <<'PY'
           import json, os, urllib.request, urllib.parse
+          from pathlib import Path
 
+          out=[]
           email = os.getenv('ONEMAP_API_EMAIL','')
           password = os.getenv('ONEMAP_API_PASSWORD','')
           if not email or not password:
-              raise SystemExit('FAIL: OneMap GitHub secrets are missing')
+              out.append('FAIL: OneMap GitHub secrets are missing')
+              Path('onemap-smoke-test-result.txt').write_text('\n'.join(out)+'\n', encoding='utf-8')
+              raise SystemExit(out[-1])
 
-          auth_req = urllib.request.Request(
-              'https://www.onemap.gov.sg/api/auth/post/getToken',
-              data=json.dumps({'email': email, 'password': password}).encode(),
-              headers={'Content-Type':'application/json'},
-              method='POST'
-          )
-          with urllib.request.urlopen(auth_req, timeout=30) as r:
-              auth = json.load(r)
-          token = auth.get('access_token')
-          if not token:
-              raise SystemExit('FAIL: OneMap authentication did not return an access token')
-          print('AUTH_OK')
+          try:
+              auth_req = urllib.request.Request(
+                  'https://www.onemap.gov.sg/api/auth/post/getToken',
+                  data=json.dumps({'email': email, 'password': password}).encode(),
+                  headers={'Content-Type':'application/json'},
+                  method='POST'
+              )
+              with urllib.request.urlopen(auth_req, timeout=30) as r:
+                  auth = json.load(r)
+              token = auth.get('access_token')
+              if not token:
+                  raise RuntimeError('authentication did not return an access token')
+              out.append('AUTH_OK')
 
-          params = urllib.parse.urlencode({
-              'searchVal':'Orchard Towers',
-              'returnGeom':'Y',
-              'getAddrDetails':'Y',
-              'pageNum':1,
-          })
-          req = urllib.request.Request(
-              'https://www.onemap.gov.sg/api/common/elastic/search?' + params,
-              headers={'Authorization': token}
-          )
-          with urllib.request.urlopen(req, timeout=30) as r:
-              data = json.load(r)
-          results = data.get('results') or []
-          print('SEARCH_RESULT_COUNT=' + str(len(results)))
-          for item in results[:5]:
-              print('RESULT=' + ' | '.join(str(item.get(k) or '') for k in ['BUILDING','ROAD_NAME','POSTAL','LATITUDE','LONGITUDE']))
-          if not results:
-              raise SystemExit('FAIL: OneMap returned no results for Orchard Towers')
-          print('ONEMAP_SMOKE_TEST_OK')
+              params = urllib.parse.urlencode({
+                  'searchVal':'Orchard Towers',
+                  'returnGeom':'Y',
+                  'getAddrDetails':'Y',
+                  'pageNum':1,
+              })
+              req = urllib.request.Request(
+                  'https://www.onemap.gov.sg/api/common/elastic/search?' + params,
+                  headers={'Authorization': token}
+              )
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  data = json.load(r)
+              results = data.get('results') or []
+              out.append('SEARCH_RESULT_COUNT=' + str(len(results)))
+              for item in results[:5]:
+                  out.append('RESULT=' + ' | '.join(str(item.get(k) or '') for k in ['BUILDING','ROAD_NAME','POSTAL','LATITUDE','LONGITUDE']))
+              if not results:
+                  raise RuntimeError('OneMap returned no results for Orchard Towers')
+              out.append('ONEMAP_SMOKE_TEST_OK')
+          except Exception as e:
+              out.append('FAIL: ' + type(e).__name__ + ': ' + str(e))
+              Path('onemap-smoke-test-result.txt').write_text('\n'.join(out)+'\n', encoding='utf-8')
+              raise
+
+          Path('onemap-smoke-test-result.txt').write_text('\n'.join(out)+'\n', encoding='utf-8')
+          print('\n'.join(out))
           PY
+
+      - name: Commit sanitized smoke-test result
+        if: always()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add onemap-smoke-test-result.txt || true
+          git diff --cached --quiet || git commit -m 'Record OneMap smoke test result'
+          git push
