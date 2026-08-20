@@ -9,19 +9,15 @@
     if (!searchActsAsOrigin || !search) return baseCurrent();
     const value = search.value;
     search.value = '';
-    try {
-      return baseCurrent();
-    } finally {
-      search.value = value;
-    }
+    try { return baseCurrent(); }
+    finally { search.value = value; }
   };
 
   const normalize = value => String(value || '')
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+  const stemToken = t => t.length > 4 && t.endsWith('s') ? t.slice(0, -1) : t;
+  const tokensFor = value => normalize(value).split(/\s+/).filter(Boolean).map(stemToken);
 
   function ensureSuggestionUi() {
     let box = document.getElementById('locationSuggestions');
@@ -39,10 +35,7 @@
 
   function hideSuggestions() {
     const box = ensureSuggestionUi();
-    if (box) {
-      box.style.display = 'none';
-      box.innerHTML = '';
-    }
+    if (box) { box.style.display = 'none'; box.innerHTML = ''; }
     pendingCandidates = [];
   }
 
@@ -63,20 +56,55 @@
     box.dataset.radius = String(radius || 0);
     box.dataset.defaultRadius = defaultRadius ? '1' : '0';
     const state = $('placeState');
-    if (state) state.textContent = `Several places match “${query}”. Choose the intended location.`;
+    if (state) state.textContent = `Choose the intended place for “${query}”.`;
     return true;
   }
 
-  async function geocodeCandidates(query) {
-    const searches = [];
-    const base = /singapore/i.test(query) ? query : `${query}, Singapore`;
-    searches.push(base);
-    if (!/\b(city|mall|centre|center|road|street|avenue|hotel|tower|airport|station)\b/i.test(query)) {
-      searches.push(`${query} City, Singapore`, `${query} Mall, Singapore`);
+  function queryVariants(query) {
+    const q = query.trim();
+    const variants = [q];
+    if (/\btower\b/i.test(q) && !/\btowers\b/i.test(q)) variants.push(q.replace(/\btower\b/i, 'Towers'));
+    if (/\btowers\b/i.test(q)) variants.push(q.replace(/\btowers\b/i, 'Tower'));
+    if (/\bctr\b/i.test(q)) variants.push(q.replace(/\bctr\b/i, 'Centre'));
+    if (/\bcenter\b/i.test(q)) variants.push(q.replace(/\bcenter\b/i, 'Centre'));
+    if (/\brd\b/i.test(q)) variants.push(q.replace(/\brd\b/i, 'Road'));
+    if (!/\b(city|mall|centre|center|road|street|avenue|hotel|tower|towers|airport|station)\b/i.test(q)) {
+      variants.push(`${q} City`, `${q} Mall`);
     }
+    return [...new Set(variants)].slice(0, 4);
+  }
 
+  function localMerchantCandidates(query) {
+    const qt = tokensFor(query);
+    if (!qt.length || !payload?.merchants?.length) return [];
+    const hits = [];
+    for (const m of payload.merchants) {
+      if (m.lat == null || m.lng == null) continue;
+      const fields = [m.address, m.geocode_address, m.geocode_building, m.mall, m.building, m.hotel, m.property, m.location, m.street, m.venue].filter(Boolean);
+      const hay = tokensFor(fields.join(' '));
+      if (!qt.every(t => hay.some(h => h.includes(t) || t.includes(h)))) continue;
+      const label = m.geocode_building || m.mall || m.building || m.property || m.hotel || m.address || query;
+      hits.push({ lat:Number(m.lat), lng:Number(m.lng), label, typeLabel:'Known merchant location' });
+    }
+    const dedup = [];
+    for (const h of hits) {
+      const key = `${h.lat.toFixed(4)},${h.lng.toFixed(4)}`;
+      if (!dedup.some(x => x.key === key)) dedup.push({ ...h, key });
+    }
+    return dedup.slice(0, 4);
+  }
+
+  async function geocodeCandidates(query) {
     const merged = [];
-    for (const search of searches) {
+    const add = c => {
+      const key = `${Number(c.lat).toFixed(5)},${Number(c.lng).toFixed(5)}`;
+      if (!merged.some(x => x.key === key)) merged.push({ ...c, key });
+    };
+
+    for (const local of localMerchantCandidates(query)) add(local);
+
+    for (const variant of queryVariants(query)) {
+      const search = /singapore/i.test(variant) ? variant : `${variant}, Singapore`;
       try {
         const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=sg&addressdetails=1&q=${encodeURIComponent(search)}`;
         const res = await fetch(url, { headers: { 'Accept-Language': 'en-SG,en;q=0.9' } });
@@ -85,26 +113,20 @@
         for (const row of rows) {
           const lat = Number(row.lat), lng = Number(row.lon);
           if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-          const label = row.display_name || query;
-          const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
-          if (merged.some(x => x.key === key)) continue;
           const typeBits = [row.type, row.addresstype, row.address?.suburb, row.address?.quarter].filter(Boolean);
-          merged.push({ key, lat, lng, label, typeLabel: typeBits.join(' · ') });
+          add({ lat, lng, label: row.display_name || variant, typeLabel: typeBits.join(' · ') || 'Singapore location' });
         }
       } catch (_) {}
-      if (merged.length >= 6) break;
+      if (merged.length >= 8) break;
     }
-    return merged.slice(0, 6);
+    return merged.slice(0, 8);
   }
 
   function confidentSingle(query, candidates) {
     if (candidates.length === 1) return candidates[0];
     if (!candidates.length) return null;
     const q = normalize(query);
-    const exact = candidates.filter(c => {
-      const first = normalize(String(c.label || '').split(',')[0]);
-      return first === q;
-    });
+    const exact = candidates.filter(c => normalize(String(c.label || '').split(',')[0]) === q);
     return exact.length === 1 ? exact[0] : null;
   }
 
@@ -133,92 +155,71 @@
       const candidates = await geocodeCandidates(query);
       if (!candidates.length) return 'none';
       const confident = confidentSingle(query, candidates);
-      if (confident) {
-        applyCandidate(confident, query, radius, defaultRadius);
-        return 'applied';
-      }
+      if (confident) { applyCandidate(confident, query, radius, defaultRadius); return 'applied'; }
       showSuggestions(query, candidates, radius, defaultRadius);
       return 'choose';
-    } catch (err) {
+    } catch (_) {
       if (placeState) placeState.textContent = `Could not use “${query}” as a location.`;
       return 'none';
-    } finally {
-      resolving = false;
-    }
+    } finally { resolving = false; }
   }
 
   async function resolveSearch() {
     const query = $('searchBox')?.value.trim() || '';
     const radius = Number($('radiusFilter')?.value || 0);
     if (!query) {
-      hideSuggestions();
-      searchActsAsOrigin = false;
-      if (radius > 0 && !originPos) useMyLocation();
-      else render(true);
+      hideSuggestions(); searchActsAsOrigin = false;
+      if (radius > 0 && !originPos) useMyLocation(); else render(true);
       return;
     }
-
     const result = await useQueryAsLocation(query, radius || 1, radius <= 0);
     if (result === 'none') {
-      hideSuggestions();
-      searchActsAsOrigin = false;
-      if (radius > 0) $('radiusFilter').value = '0';
+      hideSuggestions(); searchActsAsOrigin = false;
       const state = $('placeState');
-      if (state) state.textContent = `No Singapore location found for “${query}”. Showing merchant/address text matches instead.`;
-      render(true);
+      if (state) state.textContent = `I couldn't identify “${query}” as a Singapore place. Please refine the location instead of returning a misleading 0-result radius.`;
+      if (radius > 0) $('radiusFilter').value = '0';
+      // Keep existing results rather than forcing a zero-result text search.
+      const search = $('searchBox'), value = search.value;
+      search.value = '';
+      try { render(true); } finally { search.value = value; }
     }
   }
 
   async function resolveDistanceChange() {
     const radius = Number($('radiusFilter')?.value || 0);
-    if (radius <= 0) {
-      hideSuggestions();
-      searchActsAsOrigin = false;
-      updateOriginVisual();
-      render(true);
-      return;
-    }
+    if (radius <= 0) { hideSuggestions(); searchActsAsOrigin = false; updateOriginVisual(); render(true); return; }
     const query = $('searchBox')?.value.trim() || $('placeInput')?.value.trim() || '';
     if (query) {
       const result = await useQueryAsLocation(query, radius, false);
       if (result === 'none') {
-        $('radiusFilter').value = '0';
-        searchActsAsOrigin = false;
-        render(true);
+        $('radiusFilter').value = '0'; searchActsAsOrigin = false;
+        const search = $('searchBox'), value = search.value; search.value = '';
+        try { render(true); } finally { search.value = value; }
       }
       return;
     }
     searchActsAsOrigin = false;
-    if (!originPos) useMyLocation();
-    else {
-      updateOriginVisual();
-      render(true);
-    }
+    if (!originPos) useMyLocation(); else { updateOriginVisual(); render(true); }
   }
 
   document.addEventListener('input', event => {
     if (event.target?.id !== 'searchBox') return;
-    hideSuggestions();
-    event.stopImmediatePropagation();
+    hideSuggestions(); event.stopImmediatePropagation();
   }, true);
 
   document.addEventListener('click', event => {
     const choice = event.target.closest('[data-location-choice]');
     if (choice) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
+      event.preventDefault(); event.stopImmediatePropagation();
       const candidate = pendingCandidates[Number(choice.dataset.locationChoice)];
       const box = ensureSuggestionUi();
       const radius = Number(box?.dataset.radius || $('radiusFilter')?.value || 0);
       const defaultRadius = box?.dataset.defaultRadius === '1';
-      const query = $('searchBox')?.value.trim() || '';
-      applyCandidate(candidate, query, radius || 1, defaultRadius);
+      applyCandidate(candidate, $('searchBox')?.value.trim() || '', radius || 1, defaultRadius);
       return;
     }
     if (!event.target.closest('#findBtn')) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    resolveSearch();
+    event.preventDefault(); event.stopImmediatePropagation(); resolveSearch();
   }, true);
 
   document.addEventListener('click', event => {
@@ -229,19 +230,16 @@
 
   document.addEventListener('keydown', event => {
     if (event.key !== 'Enter' || event.target?.id !== 'searchBox') return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    resolveSearch();
+    event.preventDefault(); event.stopImmediatePropagation(); resolveSearch();
   }, true);
 
   document.addEventListener('change', event => {
     if (event.target?.id !== 'radiusFilter') return;
-    event.stopImmediatePropagation();
-    resolveDistanceChange();
+    event.stopImmediatePropagation(); resolveDistanceChange();
   }, true);
 
   const radius = $('radiusFilter');
   if (radius) radius.disabled = false;
   const state = $('placeState');
-  if (state) state.textContent = 'Enter a place such as Suntec, Orchard or a postal code. If several places match, choose the intended location from the suggestions.';
+  if (state) state.textContent = 'Enter a place such as Suntec, Orchard Towers or a postal code. Ambiguous or partial names will offer location choices.';
 })();
