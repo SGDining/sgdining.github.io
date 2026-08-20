@@ -53,8 +53,8 @@
       <div class="filter-grid common-filter-grid">
         <div class="control"><label for="categoryFilter">Category</label><select id="categoryFilter"><option value="all">All</option><option value="dining">Dining</option><option value="fashion">Fashion</option></select></div>
         <div class="control"><label for="cuisineFilter">Cuisine</label><select id="cuisineFilter"><option value="">All cuisines</option></select><small id="cuisineHint" class="field-hint"></small></div>
-        <div class="control place-control"><label for="placeInput">Nearby location</label><div class="search-row"><input id="placeInput" type="search" placeholder="e.g. Bedok Mall, Orchard, 238801"><button id="placeBtn" type="button">Set</button></div><small id="placeState" class="field-hint">Set a place or use your location to enable distance.</small></div>
-        <div class="control"><label for="radiusFilter">Distance</label><select id="radiusFilter" disabled><option value="0">Any distance</option><option value="1">Within 1 km</option><option value="2">Within 2 km</option><option value="5">Within 5 km</option><option value="10">Within 10 km</option></select></div>
+        <div class="control place-control"><label for="placeInput">Nearby location</label><div class="search-row"><input id="placeInput" type="search" placeholder="e.g. Bedok Mall, Orchard, 238801"><button id="placeBtn" type="button">Set</button></div><small id="placeState" class="field-hint">Optional: enter a place first. If left blank, choosing a distance will use your current location.</small></div>
+        <div class="control"><label for="radiusFilter">Distance</label><select id="radiusFilter"><option value="0">Any distance</option><option value="1">Within 1 km</option><option value="2">Within 2 km</option><option value="5">Within 5 km</option><option value="10">Within 10 km</option></select></div>
       </div>
     </div>
     <div id="eatigoFilterSection" class="filter-section eatigo-filter-section hidden">
@@ -77,6 +77,7 @@
 <footer><p>This is an unofficial finder and is not affiliated with American Express, GHA DISCOVERY, Pan Pacific Hotels Group, Accor, ALL Accor+ Explorer or Eatigo. Eligibility, discounts, participating outlets and terms can change; verify with the relevant programme before spending.</p>
 <p><a id="ldHotelsSource" target="_blank" rel="noopener">Love Dining Hotels</a> · <a id="ldRestaurantsSource" target="_blank" rel="noopener">Love Dining Restaurants</a> · <a id="lcSource" target="_blank" rel="noopener">Lifestyle Credit merchant PDF</a> · <a id="ghaSource" target="_blank" rel="noopener">GHA / Pan Pacific participating restaurants</a> · <a id="accorSource" target="_blank" rel="noopener">Accor Singapore restaurants</a> · <a id="accorTermsSource" target="_blank" rel="noopener">Accor+ dining variations</a> · <a id="eatigoSource" target="_blank" rel="noopener">Eatigo Singapore restaurants</a></p></footer>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script><script src="app.js?v=20260819-1908"></script>
+<script src="distance-filter-fix.js?v=20260820-1425"></script>
 <script src="program-links.js?v=20260819-2258"></script>
 <script src="accor-ui.js?v=20260819-2315"></script>
 <script src="benefits-ui.js?v=20260820-1316"></script>
