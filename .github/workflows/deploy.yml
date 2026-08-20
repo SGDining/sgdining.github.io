@@ -9,6 +9,7 @@ on:
       - 'app.js'
       - 'distance-filter-fix.js'
       - 'smart-location.js'
+      - 'location-rerun.js'
       - 'program-links.js'
       - 'accor-ui.js'
       - 'benefits-ui.js'
@@ -41,6 +42,7 @@ jobs:
           node --check app.js
           node --check distance-filter-fix.js
           node --check smart-location.js
+          node --check location-rerun.js
           node --check program-links.js
           node --check accor-ui.js
           node --check benefits-ui.js
