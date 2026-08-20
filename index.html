@@ -6,6 +6,7 @@
   <meta name="description" content="Unofficial searchable map for Singapore AMEX Love Dining, Lifestyle Credit, Pan Pacific DISCOVERY/GHA, ALL Accor+ Explorer and Eatigo dining benefits.">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="styles.css?v=20260819-2315">
+  <link rel="stylesheet" href="benefits-ui.css?v=20260820-1316">
 </head>
 <body>
 <header class="hero">
@@ -14,21 +15,30 @@
   <div class="updated" id="updated">Loading merchant data…</div>
 </header>
 <main>
+  <section class="programme-panel card" aria-label="Select dining programmes">
+    <div class="programme-main">
+      <div class="programme-head">
+        <div><div class="programme-title">Select dining programmes</div><div class="programme-subtitle">Choose one or more programmes. Multiple programmes are shown together; they do not need to overlap.</div></div>
+        <div class="programme-bulk-actions"><button id="selectAllProgrammes" class="secondary" type="button">✓ Select all</button><button id="clearAllProgrammes" class="secondary" type="button">Clear all</button></div>
+      </div>
+      <div id="programmePicker" class="programme-grid">
+        <label class="programme-tile is-checked"><input type="checkbox" data-programme="ld" checked><span class="programme-code amex">AMEX</span><span class="programme-name">Amex LD</span></label>
+        <label class="programme-tile is-checked"><input type="checkbox" data-programme="lc" checked><span class="programme-code amex">AMEX</span><span class="programme-name">Amex Lifestyle Credit</span></label>
+        <label class="programme-tile"><input type="checkbox" data-programme="accor"><span class="programme-code accor">A</span><span class="programme-name">Accor</span></label>
+        <label class="programme-tile"><input type="checkbox" data-programme="gha"><span class="programme-code gha">GHA</span><span class="programme-name">GHA</span></label>
+        <label class="programme-tile"><input type="checkbox" data-programme="eatigo"><span class="programme-code eatigo">e</span><span class="programme-name">Eatigo</span></label>
+      </div>
+      <select id="benefitFilter" class="benefit-compat" aria-hidden="true" tabindex="-1">
+        <option value="none">None</option><option value="multi">Multiple</option><option value="ld">Love Dining</option><option value="lc">Lifestyle Credit</option><option value="both" selected>LD + LC</option><option value="gha">GHA</option><option value="ghalc">GHA + LC</option><option value="accor">Accor</option><option value="accorlc">Accor + LC</option><option value="eatigo">Eatigo</option><option value="eatigolc">Eatigo + LC</option>
+      </select>
+    </div>
+    <label class="stack-lifestyle is-checked">
+      <input id="stackLifestyle" type="checkbox" checked>
+      <span><span class="stack-label">Stack Lifestyle Credit with selected programmes</span><span class="stack-help">When enabled, results only show selected programmes that also accept Lifestyle Credit.</span></span>
+    </label>
+  </section>
+
   <section class="controls card">
-    <div class="control"><label for="benefitFilter">Benefit</label><select id="benefitFilter">
-      <option value="allbenefits">All Benefits</option>
-      <option value="allbenefitslc">All Benefits + Lifestyle Credit</option>
-      <option value="ld">Love Dining (LD)</option>
-      <option value="lc">Lifestyle Credit (LC)</option>
-      <option value="both" selected>Both — LD + Lifestyle Credit</option>
-      <option value="gha">GHA List</option>
-      <option value="ghalc">Both GHA + Lifestyle Credit</option>
-      <option value="accor">Accor List</option>
-      <option value="accorlc">Both Accor + Lifestyle Credit</option>
-      <option value="eatigo">Eatigo List</option>
-      <option value="eatigolc">Both Eatigo + Lifestyle Credit</option>
-    </select></div>
-    <div class="control"><label for="categoryFilter">Category</label><select id="categoryFilter"><option value="all">All</option><option value="dining">Dining</option><option value="fashion">Fashion</option></select></div>
     <div class="control grow"><label for="searchBox">Merchant, hotel, street or postal code</label><div class="search-row"><input id="searchBox" type="search" placeholder="e.g. Prego, Pan Pacific, Orchard Rd, 238801"><button id="findBtn">Find</button></div></div>
     <button id="locateBtn" class="secondary">◎ Use my location</button>
     <button id="filterToggle" class="filter-toggle secondary" type="button">☰ Filters <span id="filterCount" class="filter-count hidden">0</span></button>
@@ -40,6 +50,7 @@
     <div class="filter-section common-filter-section">
       <div class="filter-section-title">Common filters</div>
       <div class="filter-grid common-filter-grid">
+        <div class="control"><label for="categoryFilter">Category</label><select id="categoryFilter"><option value="all">All</option><option value="dining">Dining</option><option value="fashion">Fashion</option></select></div>
         <div class="control"><label for="cuisineFilter">Cuisine</label><select id="cuisineFilter"><option value="">All cuisines</option></select><small id="cuisineHint" class="field-hint"></small></div>
         <div class="control place-control"><label for="placeInput">Nearby location</label><div class="search-row"><input id="placeInput" type="search" placeholder="e.g. Bedok Mall, Orchard, 238801"><button id="placeBtn" type="button">Set</button></div><small id="placeState" class="field-hint">Set a place or use your location to enable distance.</small></div>
         <div class="control"><label for="radiusFilter">Distance</label><select id="radiusFilter" disabled><option value="0">Any distance</option><option value="1">Within 1 km</option><option value="2">Within 2 km</option><option value="5">Within 5 km</option><option value="10">Within 10 km</option></select></div>
@@ -59,7 +70,7 @@
   <section class="stats" aria-live="polite"><div><strong id="resultCount">0</strong><span>matching outlets</span></div><div><strong id="mappedCount">0</strong><span>shown on map</span></div><label class="viewport-toggle"><input id="viewportOnly" type="checkbox"> Show only current map view</label></section>
   <div id="bootstrapBanner" class="banner hidden"></div>
   <section id="map" class="map card" aria-label="Merchant map"></section>
-  <section class="list-head"><div><h2>Merchants</h2><p id="listHint">Select a benefit or search above.</p></div><div class="sort-box"><label for="sortOrder">Sort</label><select id="sortOrder"><option value="az">A–Z</option><option value="nearest">Nearest</option></select></div></section>
+  <section class="list-head"><div><h2>Merchants</h2><p id="listHint">Select a dining programme or search above.</p></div><div class="sort-box"><label for="sortOrder">Sort</label><select id="sortOrder"><option value="az">A–Z</option><option value="nearest">Nearest</option></select></div></section>
   <section id="merchantList" class="merchant-list"></section>
 </main>
 <footer><p>This is an unofficial finder and is not affiliated with American Express, GHA DISCOVERY, Pan Pacific Hotels Group, Accor, ALL Accor+ Explorer or Eatigo. Eligibility, discounts, participating outlets and terms can change; verify with the relevant programme before spending.</p>
@@ -67,5 +78,5 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script><script src="app.js?v=20260819-1908"></script>
 <script src="program-links.js?v=20260819-2258"></script>
 <script src="accor-ui.js?v=20260819-2315"></script>
-<script src="all-benefits.js?v=20260820-1242"></script>
+<script src="benefits-ui.js?v=20260820-1316"></script>
 </body></html>
