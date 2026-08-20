@@ -9,7 +9,8 @@ on:
       - 'app.js'
       - 'program-links.js'
       - 'accor-ui.js'
-      - 'all-benefits.js'
+      - 'benefits-ui.js'
+      - 'benefits-ui.css'
       - 'styles.css'
       - 'data/**'
       - 'BLUEPRINT.md'
@@ -36,7 +37,7 @@ jobs:
           node --check app.js
           node --check program-links.js
           node --check accor-ui.js
-          node --check all-benefits.js
+          node --check benefits-ui.js
 
       - name: Preserve current SGDining production datasets
         run: |
