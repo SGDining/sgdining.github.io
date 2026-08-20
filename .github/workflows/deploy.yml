@@ -9,6 +9,7 @@ on:
       - 'app.js'
       - 'program-links.js'
       - 'accor-ui.js'
+      - 'all-benefits.js'
       - 'styles.css'
       - 'data/**'
       - 'BLUEPRINT.md'
@@ -29,6 +30,13 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check browser JavaScript syntax
+        run: |
+          node --check app.js
+          node --check program-links.js
+          node --check accor-ui.js
+          node --check all-benefits.js
 
       - name: Preserve current SGDining production datasets
         run: |
