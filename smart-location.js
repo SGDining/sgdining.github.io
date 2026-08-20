@@ -16,8 +16,6 @@
   const normalize = value => String(value || '')
     .normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ').trim();
-  const stemToken = t => t.length > 4 && t.endsWith('s') ? t.slice(0, -1) : t;
-  const tokensFor = value => normalize(value).split(/\s+/).filter(Boolean).map(stemToken);
 
   function ensureSuggestionUi() {
     let box = document.getElementById('locationSuggestions');
@@ -40,8 +38,7 @@
   }
 
   function shortLabel(candidate) {
-    const parts = String(candidate.label || '').split(',').map(x => x.trim()).filter(Boolean);
-    return parts.slice(0, 4).join(', ');
+    return candidate.shortLabel || String(candidate.label || '').split(',').map(x => x.trim()).filter(Boolean).slice(0, 4).join(', ');
   }
 
   function showSuggestions(query, candidates, radius, defaultRadius) {
@@ -68,41 +65,33 @@
     if (/\bctr\b/i.test(q)) variants.push(q.replace(/\bctr\b/i, 'Centre'));
     if (/\bcenter\b/i.test(q)) variants.push(q.replace(/\bcenter\b/i, 'Centre'));
     if (/\brd\b/i.test(q)) variants.push(q.replace(/\brd\b/i, 'Road'));
-    if (!/\b(city|mall|centre|center|road|street|avenue|hotel|tower|towers|airport|station)\b/i.test(q)) {
-      variants.push(`${q} City`, `${q} Mall`);
-    }
     return [...new Set(variants)].slice(0, 4);
   }
 
-  function localMerchantCandidates(query) {
-    const qt = tokensFor(query);
-    if (!qt.length || !payload?.merchants?.length) return [];
-    const hits = [];
-    for (const m of payload.merchants) {
-      if (m.lat == null || m.lng == null) continue;
-      const fields = [m.address, m.geocode_address, m.geocode_building, m.mall, m.building, m.hotel, m.property, m.location, m.street, m.venue].filter(Boolean);
-      const hay = tokensFor(fields.join(' '));
-      if (!qt.every(t => hay.some(h => h.includes(t) || t.includes(h)))) continue;
-      const label = m.geocode_building || m.mall || m.building || m.property || m.hotel || m.address || query;
-      hits.push({ lat:Number(m.lat), lng:Number(m.lng), label, typeLabel:'Known merchant location' });
-    }
-    const dedup = [];
-    for (const h of hits) {
-      const key = `${h.lat.toFixed(4)},${h.lng.toFixed(4)}`;
-      if (!dedup.some(x => x.key === key)) dedup.push({ ...h, key });
-    }
-    return dedup.slice(0, 4);
+  async function oneMapCandidates(query) {
+    // OneMap Search now requires authenticated server-side access. The static
+    // GitHub Pages frontend calls a same-origin proxy when one is configured.
+    // Never embed OneMap credentials or access tokens in this public JS file.
+    const proxy = window.SGDINING_ONEMAP_PROXY || '';
+    if (!proxy) return [];
+    try {
+      const url = `${proxy}${proxy.includes('?') ? '&' : '?'}q=${encodeURIComponent(query)}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const rows = Array.isArray(data) ? data : (data.results || []);
+      return rows.map(row => ({
+        lat: Number(row.LATITUDE ?? row.lat),
+        lng: Number(row.LONGITUDE ?? row.LONGTITUDE ?? row.lng ?? row.lon),
+        label: row.ADDRESS || row.SEARCHVAL || row.label || query,
+        shortLabel: row.BUILDING && row.BUILDING !== 'NIL' ? row.BUILDING : (row.SEARCHVAL || row.label || ''),
+        typeLabel: [row.ROAD_NAME, row.POSTAL].filter(Boolean).join(' · ') || 'OneMap Singapore'
+      })).filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng));
+    } catch (_) { return []; }
   }
 
-  async function geocodeCandidates(query) {
+  async function osmCandidates(query) {
     const merged = [];
-    const add = c => {
-      const key = `${Number(c.lat).toFixed(5)},${Number(c.lng).toFixed(5)}`;
-      if (!merged.some(x => x.key === key)) merged.push({ ...c, key });
-    };
-
-    for (const local of localMerchantCandidates(query)) add(local);
-
     for (const variant of queryVariants(query)) {
       const search = /singapore/i.test(variant) ? variant : `${variant}, Singapore`;
       try {
@@ -113,20 +102,44 @@
         for (const row of rows) {
           const lat = Number(row.lat), lng = Number(row.lon);
           if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+          const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
+          if (merged.some(x => x.key === key)) continue;
           const typeBits = [row.type, row.addresstype, row.address?.suburb, row.address?.quarter].filter(Boolean);
-          add({ lat, lng, label: row.display_name || variant, typeLabel: typeBits.join(' · ') || 'Singapore location' });
+          merged.push({ key, lat, lng, label: row.display_name || variant, typeLabel: typeBits.join(' · ') || 'OpenStreetMap fallback' });
         }
       } catch (_) {}
-      if (merged.length >= 8) break;
     }
-    return merged.slice(0, 8);
+    return merged.slice(0, 6);
+  }
+
+  async function geocodeCandidates(query) {
+    // Primary: SLA OneMap (when secure proxy is configured).
+    for (const variant of queryVariants(query)) {
+      const rows = await oneMapCandidates(variant);
+      if (rows.length) return dedupe(rows).slice(0, 8);
+    }
+    // Temporary fallback while the secure OneMap proxy is not yet configured.
+    // We deliberately do NOT guess from merchant addresses anymore.
+    return dedupe(await osmCandidates(query)).slice(0, 8);
+  }
+
+  function dedupe(rows) {
+    const out = [];
+    for (const row of rows) {
+      const key = `${Number(row.lat).toFixed(5)},${Number(row.lng).toFixed(5)}`;
+      if (!out.some(x => x.key === key)) out.push({ ...row, key });
+    }
+    return out;
   }
 
   function confidentSingle(query, candidates) {
     if (candidates.length === 1) return candidates[0];
     if (!candidates.length) return null;
     const q = normalize(query);
-    const exact = candidates.filter(c => normalize(String(c.label || '').split(',')[0]) === q);
+    const exact = candidates.filter(c => {
+      const names = [c.shortLabel, String(c.label || '').split(',')[0]].filter(Boolean).map(normalize);
+      return names.includes(q);
+    });
     return exact.length === 1 ? exact[0] : null;
   }
 
@@ -176,9 +189,8 @@
     if (result === 'none') {
       hideSuggestions(); searchActsAsOrigin = false;
       const state = $('placeState');
-      if (state) state.textContent = `I couldn't identify “${query}” as a Singapore place. Please refine the location instead of returning a misleading 0-result radius.`;
+      if (state) state.textContent = `I couldn't identify “${query}” as a Singapore place. Please refine the location.`;
       if (radius > 0) $('radiusFilter').value = '0';
-      // Keep existing results rather than forcing a zero-result text search.
       const search = $('searchBox'), value = search.value;
       search.value = '';
       try { render(true); } finally { search.value = value; }
@@ -241,5 +253,5 @@
   const radius = $('radiusFilter');
   if (radius) radius.disabled = false;
   const state = $('placeState');
-  if (state) state.textContent = 'Enter a place such as Suntec, Orchard Towers or a postal code. Ambiguous or partial names will offer location choices.';
+  if (state) state.textContent = 'Location search prefers Singapore SLA OneMap. If several places match, choose the intended result.';
 })();
