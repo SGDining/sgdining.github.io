@@ -55,32 +55,55 @@
     return names;
   }
 
-  function multiPopup(m) {
-    const links = programmeLinks(m);
-    const linksHtml = links.length
-      ? `<br><span class="multi-programme-popup-links">${links.map(item => `<a href="${esc(item.url)}" target="_blank" rel="noopener">${esc(item.label)} ↗</a>`).join(' · ')}</span>`
-      : '';
-    const best = eatigoDisplay(m).best;
-    const eatigoLine = m.eatigo && best != null ? `<br><strong>Eatigo best today: ${esc(best)}%</strong>` : '';
-    return `<strong>${esc(m.accor_name || m.name)}</strong><br>${esc(m.address || '')}<br><small>${esc(benefitText(m))}</small>${eatigoLine}${linksHtml}`;
-  }
-
   function eatigoDisplay(m) {
     if (!m.eatigo || !selected('eatigo')) return { live: null, slots: [], best: null };
     const live = liveFor(m);
     if (!live) return { live: null, slots: [], best: null };
+
     const mode = $('benefitFilter').value;
     const dedicated = mode === 'eatigo' || mode === 'eatigolc';
-    const slots = dedicated ? (m._slots || []) : (live.slots || []);
-    return { live, slots, best: bestForSlots(slots) };
+    let slots = dedicated ? (m._slots || []) : (live.slots || []);
+
+    // If another wrapper supplied an empty slot array, fall back to the live
+    // Eatigo snapshot instead of degrading the marker to a generic '+' pin.
+    if (!slots.length && Array.isArray(live.slots)) slots = live.slots;
+
+    const computedBest = bestForSlots(slots);
+    const snapshotBest = Number(live.best_today);
+    const best = computedBest != null
+      ? computedBest
+      : (Number.isFinite(snapshotBest) && snapshotBest > 0 ? snapshotBest : null);
+
+    return { live, slots, best };
   }
 
-  function multiEatigoTooltip(m) {
-    const base = tooltipForEatigo(m);
+  function benefitsHeader(m) {
     const names = programmeNames(m);
-    if (names.length <= 1) return base;
-    const benefitLine = `<div class="multi-hover-benefits" style="margin:0 0 10px;padding:8px 10px;border-radius:8px;background:rgba(39,105,150,.18);color:#dbefff;font-size:12px;font-weight:700;line-height:1.35"><span style="color:#8fcfff">Benefits:</span> ${esc(names.join(' · '))}</div>`;
-    return base.replace('<div class="slots-card">', `<div class="slots-card">${benefitLine}`);
+    if (names.length <= 1) return '';
+    return `<div class="multi-hover-benefits" style="margin:0 0 10px;padding:8px 10px;border-radius:8px;background:rgba(39,105,150,.18);color:#dbefff;font-size:12px;font-weight:700;line-height:1.35"><span style="color:#8fcfff">Benefits:</span> ${esc(names.join(' · '))}</div>`;
+  }
+
+  function richEatigoPanel(m, eatigo) {
+    const enriched = { ...m, _live: eatigo.live, _slots: eatigo.slots, _best: eatigo.best };
+    const base = tooltipForEatigo(enriched);
+    const header = benefitsHeader(m);
+    return header ? base.replace('<div class="slots-card">', `<div class="slots-card">${header}`) : base;
+  }
+
+  function multiPopup(m, eatigo = eatigoDisplay(m)) {
+    const links = programmeLinks(m);
+    const linksHtml = links.length
+      ? `<div class="multi-programme-popup-links" style="margin-top:10px">${links.map(item => `<a href="${esc(item.url)}" target="_blank" rel="noopener">${esc(item.label)} ↗</a>`).join(' · ')}</div>`
+      : '';
+
+    // Eatigo remains the primary information surface in multi-benefit mode.
+    // Preserve its percentage, full time/discount list and cuisine details.
+    if (m.eatigo && eatigo.best != null && eatigo.slots.length) {
+      return `${richEatigoPanel(m, eatigo)}${linksHtml}`;
+    }
+
+    const eatigoLine = m.eatigo && eatigo.best != null ? `<br><strong>Eatigo best today: ${esc(eatigo.best)}%</strong>` : '';
+    return `<strong>${esc(m.accor_name || m.name)}</strong><br>${esc(m.address || '')}<br><small>${esc(benefitText(m))}</small>${eatigoLine}${linksHtml}`;
   }
 
   function programmeColours(m, eatigoHasPercent) {
@@ -108,6 +131,8 @@
     let coreClass = 'multi-core';
     let coreStyle = '';
 
+    // Eatigo percentage always wins the centre of the marker whenever a live
+    // percentage is available. Other benefits are expressed by the ring/LC halo.
     if (hasEatigoPercent) {
       label = `${eatigo.best}%`;
       coreClass = `eatigo-core ${bucket(Number(eatigo.best))}`;
@@ -158,11 +183,15 @@
     const marker = L.marker([Number(m.lat), Number(m.lng)], { icon, riseOnHover: true });
 
     if (mode === 'multi') {
-      if (m.eatigo && selected('eatigo') && spec.eatigo.best != null && spec.eatigo.slots.length && !touchLike()) {
-        const enriched = { ...m, _live: spec.eatigo.live, _slots: spec.eatigo.slots, _best: spec.eatigo.best };
-        marker.bindTooltip(multiEatigoTooltip(enriched), { direction: 'auto', sticky: false, offset: [14, 0], opacity: .99, className: 'eatigo-slot-tooltip' });
+      if (m.eatigo && selected('eatigo') && spec.eatigo.best != null && spec.eatigo.slots.length) {
+        const panel = richEatigoPanel(m, spec.eatigo);
+        if (!touchLike()) {
+          marker.bindTooltip(panel, { direction: 'auto', sticky: false, offset: [14, 0], opacity: .99, className: 'eatigo-slot-tooltip' });
+        }
+        marker.bindPopup(multiPopup(m, spec.eatigo));
+      } else {
+        marker.bindPopup(multiPopup(m, spec.eatigo));
       }
-      marker.bindPopup(multiPopup(m));
       return marker;
     }
 
