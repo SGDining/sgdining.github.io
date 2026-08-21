@@ -45,6 +45,16 @@
     return links;
   }
 
+  function programmeNames(m) {
+    const names = [];
+    if (m.ld) names.push('Love Dining');
+    if (m.lc) names.push('Lifestyle Credit');
+    if (m.accor) names.push('Accor+');
+    if (m.gha) names.push('GHA');
+    if (m.eatigo) names.push('Eatigo');
+    return names;
+  }
+
   function multiPopup(m) {
     const links = programmeLinks(m);
     const linksHtml = links.length
@@ -63,6 +73,14 @@
     const dedicated = mode === 'eatigo' || mode === 'eatigolc';
     const slots = dedicated ? (m._slots || []) : (live.slots || []);
     return { live, slots, best: bestForSlots(slots) };
+  }
+
+  function multiEatigoTooltip(m) {
+    const base = tooltipForEatigo(m);
+    const names = programmeNames(m);
+    if (names.length <= 1) return base;
+    const benefitLine = `<div class="multi-hover-benefits" style="margin:0 0 10px;padding:8px 10px;border-radius:8px;background:rgba(39,105,150,.18);color:#dbefff;font-size:12px;font-weight:700;line-height:1.35"><span style="color:#8fcfff">Benefits:</span> ${esc(names.join(' · '))}</div>`;
+    return base.replace('<div class="slots-card">', `<div class="slots-card">${benefitLine}`);
   }
 
   function programmeColours(m, eatigoHasPercent) {
@@ -142,7 +160,7 @@
     if (mode === 'multi') {
       if (m.eatigo && selected('eatigo') && spec.eatigo.best != null && spec.eatigo.slots.length && !touchLike()) {
         const enriched = { ...m, _live: spec.eatigo.live, _slots: spec.eatigo.slots, _best: spec.eatigo.best };
-        marker.bindTooltip(tooltipForEatigo(enriched), { direction: 'auto', sticky: false, offset: [14, 0], opacity: .99, className: 'eatigo-slot-tooltip' });
+        marker.bindTooltip(multiEatigoTooltip(enriched), { direction: 'auto', sticky: false, offset: [14, 0], opacity: .99, className: 'eatigo-slot-tooltip' });
       }
       marker.bindPopup(multiPopup(m));
       return marker;
