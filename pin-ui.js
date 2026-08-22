@@ -90,20 +90,37 @@
     return header ? base.replace('<div class="slots-card">', `<div class="slots-card">${header}`) : base;
   }
 
+  function popupCloseButton() {
+    return '<div style="display:flex;justify-content:flex-end;margin:-2px -2px 5px 0"><button type="button" class="map-detail-close" aria-label="Close restaurant details" style="width:34px;height:34px;min-height:34px;padding:0;border-radius:17px;border:1px solid #4a6885;background:#102b49;color:#fff;font-size:24px;line-height:30px;font-weight:500;box-shadow:none">×</button></div>';
+  }
+
+  function wirePopupClose(marker) {
+    marker.on('popupopen', e => {
+      const button = e.popup.getElement()?.querySelector('.map-detail-close');
+      if (!button) return;
+      button.onclick = event => {
+        event.preventDefault();
+        event.stopPropagation();
+        marker.closePopup();
+      };
+    });
+  }
+
   function multiPopup(m, eatigo = eatigoDisplay(m)) {
     const links = programmeLinks(m);
     const linksHtml = links.length
       ? `<div class="multi-programme-popup-links" style="margin-top:10px">${links.map(item => `<a href="${esc(item.url)}" target="_blank" rel="noopener">${esc(item.label)} ↗</a>`).join(' · ')}</div>`
       : '';
+    const close = popupCloseButton();
 
     // Eatigo remains the primary information surface in multi-benefit mode.
     // Preserve its percentage, full time/discount list and cuisine details.
     if (m.eatigo && eatigo.best != null && eatigo.slots.length) {
-      return `${richEatigoPanel(m, eatigo)}${linksHtml}`;
+      return `${close}${richEatigoPanel(m, eatigo)}${linksHtml}`;
     }
 
     const eatigoLine = m.eatigo && eatigo.best != null ? `<br><strong>Eatigo best today: ${esc(eatigo.best)}%</strong>` : '';
-    return `<strong>${esc(m.accor_name || m.name)}</strong><br>${esc(m.address || '')}<br><small>${esc(benefitText(m))}</small>${eatigoLine}${linksHtml}`;
+    return `${close}<strong>${esc(m.accor_name || m.name)}</strong><br>${esc(m.address || '')}<br><small>${esc(benefitText(m))}</small>${eatigoLine}${linksHtml}`;
   }
 
   function programmeColours(m, eatigoHasPercent) {
@@ -188,17 +205,18 @@
         if (!touchLike()) {
           marker.bindTooltip(panel, { direction: 'auto', sticky: false, offset: [14, 0], opacity: .99, className: 'eatigo-slot-tooltip' });
         }
-        marker.bindPopup(multiPopup(m, spec.eatigo));
+        marker.bindPopup(multiPopup(m, spec.eatigo), { autoClose: true, closeOnClick: true, closeButton: true });
       } else {
-        marker.bindPopup(multiPopup(m, spec.eatigo));
+        marker.bindPopup(multiPopup(m, spec.eatigo), { autoClose: true, closeOnClick: true, closeButton: true });
       }
+      wirePopupClose(marker);
       return marker;
     }
 
     if ((mode === 'eatigo' || mode === 'eatigolc') && m.eatigo) {
       if (spec.eatigo.best != null && spec.eatigo.slots.length) {
         const enriched = { ...m, _live: spec.eatigo.live, _slots: spec.eatigo.slots, _best: spec.eatigo.best };
-        if (touchLike()) marker.bindPopup(mobilePopupForEatigo(enriched));
+        if (touchLike()) marker.bindPopup(mobilePopupForEatigo(enriched), { autoClose: true, closeOnClick: true, closeButton: true });
         else {
           marker.bindTooltip(tooltipForEatigo(enriched), { direction: 'auto', sticky: false, offset: [14, 0], opacity: .99, className: 'eatigo-slot-tooltip' });
           marker.on('click', () => window.open(m.eatigo_url, '_blank', 'noopener'));
