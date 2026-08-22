@@ -18,8 +18,12 @@
 .origin-glow-pin:before{content:"";position:absolute;inset:-12px;border-radius:50%;border:2px solid rgba(86,183,255,.45);animation:originPulse 2s ease-out infinite}
 .origin-glow-pin span{position:absolute;width:6px;height:6px;border-radius:50%;background:#dff5ff;left:7px;top:7px}
 @keyframes originPulse{0%{transform:scale(.68);opacity:.8}70%{transform:scale(1.28);opacity:.08}100%{transform:scale(1.28);opacity:0}}
-.benefit-map-legend{background:rgba(7,20,38,.92);border:1px solid #31516f;border-radius:12px;padding:9px 10px;color:#edf5ff;box-shadow:0 8px 22px rgba(0,0,0,.35);backdrop-filter:blur(8px);font:11px/1.25 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
-.legend-title{font-weight:850;text-transform:uppercase;letter-spacing:.08em;color:#9fb2ca;margin-bottom:6px;font-size:9px}
+.benefit-map-legend{background:rgba(7,20,38,.92);border:1px solid #31516f;border-radius:12px;padding:7px;color:#edf5ff;box-shadow:0 8px 22px rgba(0,0,0,.35);backdrop-filter:blur(8px);font:11px/1.25 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;min-width:88px}
+.legend-toggle{width:100%;min-height:26px;height:26px;padding:0 6px;border-radius:7px;border:0;background:transparent;color:#edf5ff;display:flex;align-items:center;justify-content:space-between;gap:8px;box-shadow:none;font:inherit;font-weight:800;cursor:pointer}
+.legend-toggle:hover{background:rgba(255,255,255,.06)}
+.legend-toggle-label{text-transform:uppercase;letter-spacing:.06em;color:#9fb2ca;font-size:9px}
+.legend-toggle-icon{font-size:15px;line-height:1;color:#dbe9f7}
+.legend-body{margin-top:3px}
 .legend-row{display:flex;align-items:center;gap:6px;min-height:20px;white-space:nowrap}
 .legend-dot{width:12px;height:12px;border-radius:50%;border:1.5px solid rgba(255,255,255,.9);box-shadow:0 1px 4px rgba(0,0,0,.35)}
 .legend-dot.ld{background:#29b6d8}.legend-dot.accor{background:#7b61ff}.legend-dot.gha{background:#c85a5a}
@@ -27,6 +31,11 @@
 .legend-discount{min-width:27px;height:18px;padding:0 4px;border-radius:9px;background:#d96f2b;border:1px solid #fff;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:900}
 .legend-multi{width:14px;height:14px;border-radius:50%;background:conic-gradient(#29b6d8 0 33.33%,#7b61ff 33.33% 66.66%,#c85a5a 66.66% 100%);border:1.5px solid #fff;position:relative}
 .legend-multi:after{content:"";position:absolute;inset:3px;border-radius:50%;background:#0b1d33}
-@media(max-width:700px){.benefit-map-legend{padding:6px 7px;right:4px!important;bottom:26px!important;opacity:.88;max-width:92px}.legend-title{display:none}.legend-row{font-size:9px;min-height:16px;gap:4px}.legend-dot{width:10px;height:10px}.legend-ring{width:11px;height:11px;border-width:2px}.legend-discount{min-width:24px;height:16px;font-size:8px;padding:0 3px}.legend-multi{width:12px;height:12px}.benefit-pin-wrap{width:38px;height:38px}.benefit-pin-ring{width:33px;height:33px}.benefit-pin-core{width:22px;height:22px}.benefit-pin-core.eatigo-core{width:24px;height:24px}.origin-glow-pin{width:25px;height:25px}}
-@media(max-width:430px){.benefit-map-legend{transform:scale(.84);transform-origin:bottom right;right:-4px!important;bottom:30px!important;opacity:.8}}
+.benefit-map-legend.is-collapsed{min-width:0;padding:4px}
+.benefit-map-legend.is-collapsed .legend-body{display:none}
+.benefit-map-legend.is-collapsed .legend-toggle{width:34px;height:30px;min-height:30px;padding:0;justify-content:center}
+.benefit-map-legend.is-collapsed .legend-toggle-label{display:none}
+.benefit-map-legend.is-collapsed .legend-toggle-icon{font-size:20px}
+@media(max-width:700px){.benefit-map-legend{right:4px!important;bottom:26px!important;opacity:.94;min-width:0;padding:5px}.legend-row{font-size:9px;min-height:16px;gap:4px}.legend-dot{width:10px;height:10px}.legend-ring{width:11px;height:11px;border-width:2px}.legend-discount{min-width:24px;height:16px;font-size:8px;padding:0 3px}.legend-multi{width:12px;height:12px}.benefit-map-legend.is-collapsed{opacity:.8}.benefit-pin-wrap{width:38px;height:38px}.benefit-pin-ring{width:33px;height:33px}.benefit-pin-core{width:22px;height:22px}.benefit-pin-core.eatigo-core{width:24px;height:24px}.origin-glow-pin{width:25px;height:25px}}
+@media(max-width:430px){.benefit-map-legend{right:2px!important;bottom:28px!important}.benefit-map-legend:not(.is-collapsed){transform:scale(.88);transform-origin:bottom right}.benefit-map-legend.is-collapsed{transform:none}}
 @media(prefers-reduced-motion:reduce){.origin-glow-pin:before{animation:none}.benefit-pin-wrap{transition:none}}
