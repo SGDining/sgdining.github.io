@@ -64,8 +64,6 @@
     const dedicated = mode === 'eatigo' || mode === 'eatigolc';
     let slots = dedicated ? (m._slots || []) : (live.slots || []);
 
-    // If another wrapper supplied an empty slot array, fall back to the live
-    // Eatigo snapshot instead of degrading the marker to a generic '+' pin.
     if (!slots.length && Array.isArray(live.slots)) slots = live.slots;
 
     const computedBest = bestForSlots(slots);
@@ -113,8 +111,6 @@
       : '';
     const close = popupCloseButton();
 
-    // Eatigo remains the primary information surface in multi-benefit mode.
-    // Preserve its percentage, full time/discount list and cuisine details.
     if (m.eatigo && eatigo.best != null && eatigo.slots.length) {
       return `${close}${richEatigoPanel(m, eatigo)}${linksHtml}`;
     }
@@ -148,8 +144,6 @@
     let coreClass = 'multi-core';
     let coreStyle = '';
 
-    // Eatigo percentage always wins the centre of the marker whenever a live
-    // percentage is available. Other benefits are expressed by the ring/LC halo.
     if (hasEatigoPercent) {
       label = `${eatigo.best}%`;
       coreClass = `eatigo-core ${bucket(Number(eatigo.best))}`;
@@ -287,13 +281,33 @@
   legend.onAdd = function () {
     const div = L.DomUtil.create('div', 'benefit-map-legend');
     div.innerHTML = `
-      <div class="legend-title">Map key</div>
-      <div class="legend-row"><span class="legend-dot ld"></span><span>LD</span></div>
-      <div class="legend-row"><span class="legend-dot accor"></span><span>Accor</span></div>
-      <div class="legend-row"><span class="legend-dot gha"></span><span>GHA</span></div>
-      <div class="legend-row"><span class="legend-ring lc"></span><span>LC halo</span></div>
-      <div class="legend-row"><span class="legend-discount">40%</span><span>Eatigo</span></div>
-      <div class="legend-row"><span class="legend-multi"></span><span>Multiple</span></div>`;
+      <button type="button" class="legend-toggle" aria-expanded="true" aria-label="Collapse map key">
+        <span class="legend-toggle-label">Map key</span><span class="legend-toggle-icon">−</span>
+      </button>
+      <div class="legend-body">
+        <div class="legend-row"><span class="legend-dot ld"></span><span>LD</span></div>
+        <div class="legend-row"><span class="legend-dot accor"></span><span>Accor</span></div>
+        <div class="legend-row"><span class="legend-dot gha"></span><span>GHA</span></div>
+        <div class="legend-row"><span class="legend-ring lc"></span><span>LC halo</span></div>
+        <div class="legend-row"><span class="legend-discount">40%</span><span>Eatigo</span></div>
+        <div class="legend-row"><span class="legend-multi"></span><span>Multiple</span></div>
+      </div>`;
+
+    const toggle = div.querySelector('.legend-toggle');
+    const setCollapsed = collapsed => {
+      div.classList.toggle('is-collapsed', collapsed);
+      toggle.setAttribute('aria-expanded', String(!collapsed));
+      toggle.setAttribute('aria-label', collapsed ? 'Expand map key' : 'Collapse map key');
+      toggle.querySelector('.legend-toggle-icon').textContent = collapsed ? '+' : '−';
+    };
+
+    setCollapsed(window.matchMedia('(max-width: 700px)').matches);
+    toggle.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      setCollapsed(!div.classList.contains('is-collapsed'));
+    });
+
     L.DomEvent.disableClickPropagation(div);
     L.DomEvent.disableScrollPropagation(div);
     return div;
