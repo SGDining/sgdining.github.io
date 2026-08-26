@@ -1,0 +1,63 @@
+name: Debug Kris+ Bedok nearby
+
+on:
+  push:
+    branches:
+      - fix/krisplus-bedok-nearby
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Bedok diagnostic report
+        run: |
+          python - <<'PY'
+          import json, math, pathlib
+          root = pathlib.Path('data/krisplus-v2')
+          text = ''.join((root / f'chunk-{i:02d}.txt').read_text(encoding='utf-8') for i in range(1,8))
+          data = json.loads(text)
+          targets = {
+              'ACE Marketplace', 'Harvey Norman', 'Canadian Pizza', 'SF Fruits & Juices',
+              'MODE AESTHETICS', 'Canton Paradise', "LeNu Chef Wai's Noodle Bar", 'Nailz Treats'
+          }
+          rows=[]
+          for idx,row in enumerate(data['rows']):
+              mi,oi,ci,li,mpd=row
+              merchant=data['merchants'][mi]
+              if merchant not in targets:
+                  continue
+              outlet=data['outlets'][oi]
+              category=data['categories'][ci] if ci < len(data['categories']) else ''
+              loc=data['locations'][li]
+              address,postal,lat,lng,conf=loc
+              valid_coord=isinstance(lat,(int,float)) and isinstance(lng,(int,float)) and 1.15 <= lat <= 1.50 and 103.55 <= lng <= 104.10
+              valid_postal=isinstance(postal,str) and len(postal)==6 and postal.isdigit()
+              map_ready=(conf=='high' and valid_postal and valid_coord)
+              rows.append({
+                  'row_index':idx,'merchant':merchant,'outlet':outlet,'category':category,'mpd':mpd,
+                  'location_index':li,'address':address,'postal':postal,'lat':lat,'lng':lng,'confidence':conf,
+                  'valid_coord':valid_coord,'valid_postal':valid_postal,'current_map_ready':map_ready
+              })
+          bedok_locations=[]
+          for i,loc in enumerate(data['locations']):
+              address,postal,lat,lng,conf=loc
+              s=' '.join(str(x or '') for x in (address,postal)).lower()
+              if 'bedok' in s or 'chai chee' in s:
+                  bedok_locations.append({'location_index':i,'address':address,'postal':postal,'lat':lat,'lng':lng,'confidence':conf})
+          report={
+              'target_rows':rows,
+              'bedok_locations':bedok_locations,
+              'counts':{
+                  'target_rows':len(rows),
+                  'target_map_ready':sum(1 for r in rows if r['current_map_ready']),
+                  'bedok_locations':len(bedok_locations)
+              }
+          }
+          pathlib.Path('bedok-debug-report.json').write_text(json.dumps(report,indent=2,ensure_ascii=False),encoding='utf-8')
+          print(json.dumps(report,indent=2,ensure_ascii=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: krisplus-bedok-debug
+          path: bedok-debug-report.json
