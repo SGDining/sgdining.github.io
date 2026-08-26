@@ -1,0 +1,38 @@
+name: Validate Kris+ v2
+
+on:
+  push:
+    branches:
+      - feature/krisplus-v2
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check JavaScript syntax
+        run: |
+          node --check krisplus-ui.js
+          node --check location-rerun.js
+      - name: Validate Kris+ compact data
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          parts = [Path(f"data/krisplus-v2/chunk-{i:02d}.txt").read_text(encoding="utf-8") for i in range(1, 8)]
+          data = json.loads("".join(parts))
+          assert data.get("v") == 2, data.get("v")
+          rows = data.get("rows") or []
+          assert len(rows) == 1053, len(rows)
+          assert len(data.get("merchants") or []) == 478, len(data.get("merchants") or [])
+          print(f"Kris+ compact data OK: {len(rows)} outlets, {len(data.get('merchants') or [])} merchants")
+          PY
+      - name: Check Kris+ loader wiring and obsolete fragments
+        run: |
+          grep -q "krisplus-ui.js" location-rerun.js
+          test -f krisplus-ui.js
+          test ! -e data/krisplus_manifest.json
+          for i in $(seq 1 11); do test ! -e "data/krisplus_outlets_${i}.json"; done
