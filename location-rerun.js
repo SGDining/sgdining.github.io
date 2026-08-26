@@ -78,3 +78,11 @@
 
   window.SGDiningRerunActiveLocationSearch = rerunActiveLocationSearch;
 })();
+
+(() => {
+  if (document.getElementById('sgdiningKrisplusScript')) return;
+  const script = document.createElement('script');
+  script.id = 'sgdiningKrisplusScript';
+  script.src = 'krisplus-ui.js?v=20260826-1715';
+  document.body.appendChild(script);
+})();
