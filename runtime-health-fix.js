@@ -144,7 +144,7 @@
 
     try {
       const parts = await Promise.all(KP_PARTS.map(async url => {
-        const response = await fetch(url, { cache: 'no-store' });
+        const response = await fetch(`${url}?runtime=20260827-2205`, { cache: 'no-store' });
         if (!response.ok) throw new Error(`${response.status} ${url}`);
         return response.text();
       }));
