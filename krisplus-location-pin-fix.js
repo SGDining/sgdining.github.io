@@ -31,9 +31,6 @@
       const el = marker.getElement?.();
       const core = el?.querySelector('.benefit-pin-core');
       if (!core) return;
-
-      // A plain "+" meant "multiple/other" before Kris+ existed. For Kris+
-      // outlets, make the programme explicit instead of showing an ambiguous +.
       if (core.textContent.trim() === '+') {
         core.textContent = 'K+';
         core.style.background = BLUE;
@@ -72,7 +69,6 @@
     if (typeof current !== 'function' || !Array.isArray(markers) || !markers.length) return;
     const mappedRows = current().filter(m => m.lat != null && m.lng != null);
     const groups = new Map();
-
     mappedRows.forEach((merchant, index) => {
       const marker = markers[index];
       if (!marker) return;
@@ -81,22 +77,18 @@
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push({ merchant, marker, index });
     });
-
     for (const entries of groups.values()) {
       if (entries.length < 2) continue;
       const leader = entries[0].marker;
       const allKrisplus = entries.every(({ merchant }) => !!merchant.krisplus);
       const hasKrisplus = entries.some(({ merchant }) => !!merchant.krisplus);
       const count = entries.length;
-
       for (let i = 1; i < entries.length; i++) {
         try { layer.removeLayer(entries[i].marker); } catch (_) {}
       }
-
       leader.unbindTooltip?.();
       leader.unbindPopup?.();
       leader.off?.('click');
-
       const accent = allKrisplus ? BLUE : (hasKrisplus ? '#4f9edc' : '#34516e');
       const label = allKrisplus ? 'K+' : '';
       const icon = L.divIcon({
