@@ -5,11 +5,12 @@ on:
     branches: [main]
     paths:
       - 'data/krisplus-v2/chunk-*.txt'
+      - 'data/krisplus-v2/manifest.json'
       - 'krisplus-data-1730.js'
       - '.github/workflows/validate-krisplus-data.yml'
   workflow_dispatch:
 
-# Contract: the compact production dataset must reconstruct all 1,730 source rows.
+# Contract: the compact production dataset must match its manifest exactly.
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -18,17 +19,26 @@ jobs:
       - name: Assemble compact Kris+ dataset
         run: |
           python - <<'PY'
+          import hashlib, json
           from pathlib import Path
+
+          manifest = json.loads(Path('data/krisplus-v2/manifest.json').read_text(encoding='utf-8'))
+          count = int(manifest['chunk_count'])
+          assert count > 0, count
           parts=[]
-          for i in range(1,13):
+          for i in range(1, count + 1):
               p=Path(f'data/krisplus-v2/chunk-{i:02d}.txt')
               assert p.exists(), f'Missing {p}'
               text=p.read_text(encoding='utf-8')
               print(f'{p}: {len(text)} chars')
               parts.append(text)
           raw=''.join(parts)
+          assert len(raw) == int(manifest['char_count']), (len(raw), manifest['char_count'])
+          assert len(raw.encode('utf-8')) == int(manifest['byte_count']), (len(raw.encode('utf-8')), manifest['byte_count'])
+          digest=hashlib.sha256(raw.encode('utf-8')).hexdigest()
+          assert digest == manifest['sha256'], (digest, manifest['sha256'])
           Path('krisplus-combined.json').write_text(raw, encoding='utf-8')
-          print(f'combined: {len(raw)} chars')
+          print(f'combined: {len(raw)} chars; sha256={digest}')
           PY
       - name: Upload assembled dataset
         uses: actions/upload-artifact@v4
@@ -41,16 +51,22 @@ jobs:
           import json
           from pathlib import Path
 
+          manifest=json.loads(Path('data/krisplus-v2/manifest.json').read_text(encoding='utf-8'))
           data=json.loads(Path('krisplus-combined.json').read_text(encoding='utf-8'))
           rows=data.get('rows') or []
-          assert data.get('source_rows') == 1730, data.get('source_rows')
-          assert len(rows) == 1730, len(rows)
+          expected_rows=int(manifest['source_rows'])
+          assert data.get('source_rows') == expected_rows, (data.get('source_rows'), expected_rows)
+          assert len(rows) == expected_rows, (len(rows), expected_rows)
 
           merchants=data['merchants']
           outlets=data['outlets']
           categories=data['categories']
           locations=data['locations']
+          assert len(set(merchants)) == int(manifest['unique_merchants']), (len(set(merchants)), manifest['unique_merchants'])
+
           decoded=[(merchants[mi],outlets[oi],categories[ci],locations[li],mpd) for mi,oi,ci,li,mpd in rows]
+          keys=[(m,o) for m,o,*_ in decoded]
+          assert len(keys) == len(set(keys)), 'Duplicate (merchant, outlet) keys in Kris+ dataset'
 
           required={
               ('Avocadoria Singapore','Bedok Mall'),
@@ -64,5 +80,5 @@ jobs:
           present={(m,o) for m,o,*_ in decoded}
           missing=required-present
           assert not missing, f'Missing regression outlets: {sorted(missing)}'
-          print(f'Kris+ validation OK: {len(rows)} rows, {len(set(merchants))} merchants')
+          print(f'Kris+ validation OK: {len(rows)} rows, {len(set(merchants))} merchants, {manifest["chunk_count"]} chunks')
           PY
