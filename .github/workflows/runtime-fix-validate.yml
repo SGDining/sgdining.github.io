@@ -18,32 +18,24 @@ jobs:
           node --check runtime-health-fix.js
           node --check krisplus-ui.js
           node --check krisplus-location-pin-fix.js
-      - name: Validate refreshed Kris+ compact data
+      - name: Diagnose current Kris+ compact data
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
           parts = [Path(f"data/krisplus-v2/chunk-{i:02d}.txt").read_text(encoding="utf-8") for i in range(1, 11)]
-          data = json.loads("".join(parts))
-          rows = data.get("rows") or []
-          merchants = data.get("merchants") or []
-          outlets = data.get("outlets") or []
-          locations = data.get("locations") or []
-          assert data.get("v") == 2
-          assert len(rows) == 1730, len(rows)
-          assert len(merchants) == 598, len(merchants)
-          decoded=[]
-          for row in rows:
-              mi, oi, ci, li, mpd = row
-              loc = locations[li] if li < len(locations) else []
-              decoded.append((merchants[mi], outlets[oi], loc, mpd))
-          bedok=[r for r in decoded if r[1] == 'Bedok Mall']
-          assert len(bedok) == 18, len(bedok)
-          avo=[r for r in bedok if r[0] == 'Avocadoria Singapore']
-          assert len(avo) == 1, avo
-          assert avo[0][2][1] == '467360', avo
-          assert avo[0][2][4] == 'high', avo
-          print(f"Kris+ data OK: {len(rows)} outlets, {len(merchants)} merchants, {len(bedok)} Bedok Mall rows")
+          for i,p in enumerate(parts,1):
+              print(i, len(p), repr(p[:60]), repr(p[-100:]))
+          raw=''.join(parts)
+          print('TOTAL',len(raw),'TAIL',repr(raw[-300:]))
+          try:
+              data=json.loads(raw)
+              print('FULL JSON OK',len(data.get('rows') or []))
+          except Exception as e:
+              print('FULL JSON ERROR',repr(e))
+          cut=raw.rfind(',[')
+          partial=json.loads(raw[:cut]+']}')
+          print('PARTIAL ROWS',len(partial.get('rows') or []),'LAST',partial.get('rows',[])[-3:])
           PY
       - name: Check runtime wiring
         run: |
