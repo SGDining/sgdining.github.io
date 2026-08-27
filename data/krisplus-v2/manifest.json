@@ -1,0 +1,13 @@
+{
+  "manifest_version": 1,
+  "dataset_version": 2,
+  "source_file": "krisplus_outlets_SGDining.csv",
+  "source_rows": 1730,
+  "duplicates_removed": 0,
+  "unique_merchants": 598,
+  "chunk_count": 12,
+  "char_count": 115012,
+  "byte_count": 115035,
+  "sha256": "3f8d128f225d2eacc6188faa80e13b531d1529c90419f71f71a7be41c60d7b47",
+  "generated_at": "2026-08-26T19:06:26.700Z"
+}
