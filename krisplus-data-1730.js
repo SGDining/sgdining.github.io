@@ -4,7 +4,7 @@
   window.fetch = async function(input, init) {
     const url = typeof input === 'string' ? input : input?.url;
     if (url === target || url?.endsWith('/' + target)) {
-      const parts = await Promise.all([7,8,9,10].map(async n => {
+      const parts = await Promise.all([7,8,9,10,11,12].map(async n => {
         const path = `data/krisplus-v2/chunk-${String(n).padStart(2,'0')}.txt`;
         const r = await originalFetch(path, { ...(init || {}), cache: 'no-store' });
         if (!r.ok) throw new Error(`Kris+ outlet data ${r.status}: ${path}`);
