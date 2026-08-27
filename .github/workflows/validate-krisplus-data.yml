@@ -9,6 +9,7 @@ on:
       - '.github/workflows/validate-krisplus-data.yml'
   workflow_dispatch:
 
+# Contract: the compact production dataset must reconstruct all 1,730 source rows.
 jobs:
   validate:
     runs-on: ubuntu-latest
